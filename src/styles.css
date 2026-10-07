@@ -1704,3 +1704,15 @@ html[data-quick-capture="true"], html[data-quick-capture="true"] body, html[data
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+.source-workbench { margin: 0 0 18px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+.source-workbench summary { cursor: pointer; font-weight: 600; }
+.source-workbench p, .source-workbench small { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.source-workbench label { display: grid; gap: 6px; font-size: 12px; margin: 8px 0; }
+.source-workbench input:not([type="checkbox"]), .source-workbench textarea { width: 100%; box-sizing: border-box; min-width: 0; padding: 8px; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; }
+.source-workbench button { padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.source-results { max-height: 340px; overflow-y: auto; }
+.source-results article { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.source-results article label { display: flex; align-items: flex-start; }
+.source-results article p { white-space: pre-wrap; max-height: 130px; overflow: auto; }
+.source-actions, .source-selection { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.source-workbench pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 240px; overflow-y: auto; }
