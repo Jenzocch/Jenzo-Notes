@@ -14,6 +14,7 @@ export interface NoteSource {
 }
 
 const normalize = (text: string) => text.normalize("NFKC").toLocaleLowerCase();
+export const literalMarkdown = (text: string) => text.replace(/[\\`*_\[\]<>#!|:().@]/g, "\\$&");
 
 export function queryTerms(query: string) {
   return [...new Set(normalize(query).match(/[\p{L}\p{N}]+/gu) || [])].slice(0, 24);
@@ -98,7 +99,7 @@ export function parseSourcedDocument(raw: string, sources: NoteSource[]) {
       const source = sources.find(source => source.key === item.key);
       if (!source || typeof item.quote !== "string" || item.quote.trim().length < 8 || !source.excerpt.includes(item.quote)) throw new Error("Unverified source quote");
       if (!used.some(item => item.key === source.key)) used.push(source);
-      return `> ${item.quote.replace(/\n/g, "\n> ")}\n> [${sources.indexOf(source) + 1}]`;
+      return `> ${literalMarkdown(item.quote).replace(/\n/g, "\n> ")}\n> [${sources.indexOf(source) + 1}]`;
     });
     return `## ${section.heading}\n\n${section.text}\n\n${evidence.join("\n\n")}`;
   });
@@ -109,7 +110,7 @@ export function sourceAppendix(sources: NoteSource[], language: AppLanguage) {
   const zh = language.startsWith("zh");
   return `\n\n---\n\n## ${zh ? "來源（原文節錄快照）" : "Sources (excerpt snapshots)"}\n\n` + sources.map((source, index) => {
     const url = source.sourceUrl && /^https?:\/\//i.test(source.sourceUrl) ? `\n${source.sourceUrl}` : "";
-    return `### [${index + 1}] ${source.title.replace(/\n/g, " ")}\n\nID: ${source.key}\n${zh ? "更新時間" : "Updated"}: ${new Date(source.updatedAt).toISOString()}${url}\n\n> ${source.excerpt.replace(/\n/g, "\n> ")}`;
+    return `### [${index + 1}] ${literalMarkdown(source.title.replace(/\n/g, " "))}\n\nID: \`${source.key.replace(/[`\r\n]/g, " ")}\`\n${zh ? "更新時間" : "Updated"}: ${new Date(source.updatedAt).toISOString()}${url}\n\n> ${literalMarkdown(source.excerpt).replace(/\n/g, "\n> ")}`;
   }).join("\n\n");
 }
 

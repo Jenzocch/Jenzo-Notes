@@ -1,33 +1,8 @@
-// Uses an already-installed Chrome/Edge launched with an isolated profile and
-// --headless=new --remote-debugging-port=9237. No browser/package downloads.
 import fs from "node:fs/promises";
 import path from "node:path";
-const port = process.env.JENZO_CDP_PORT || "9237";
-const base = process.env.CHENGJING_URL || "http://127.0.0.1:5173";
-if (!["127.0.0.1", "localhost", "[::1]"].includes(new URL(base).hostname)) throw new Error("QA requires a localhost development server");
-const output = path.resolve("qa-artifacts/source-workbench");
-await fs.mkdir(output, { recursive: true });
-const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" })).json();
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise(resolve => ws.addEventListener("open", resolve, { once: true }));
-let id = 0; const pending = new Map(); const errors = [];
-ws.addEventListener("message", event => {
-  const message = JSON.parse(event.data);
-  if (message.id) { const item = pending.get(message.id); pending.delete(message.id); message.error ? item.reject(new Error(message.error.message)) : item.resolve(message.result); }
-  if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails.text + ": " + (message.params.exceptionDetails.exception?.description || ""));
-});
-const call = (method, params = {}) => new Promise((resolve, reject) => { const request = ++id; pending.set(request, { resolve, reject }); ws.send(JSON.stringify({ id: request, method, params })); });
-const evaluate = async expression => { const result = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text); return result.result.value; };
-const wait = async expression => { const start = Date.now(); while (Date.now() - start < 20000) { if (await evaluate(`Boolean(${expression})`)) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw new Error(`Timed out: ${expression}`); };
-const click = async expression => {
-  await wait(`(${expression}) && !(${expression}).disabled`);
-  const point = await evaluate(`(() => { const el = ${expression}; if(!el) throw new Error('Missing click target'); el.scrollIntoView({block:'center'}); const r=el.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
-  await call("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, ...point });
-  await call("Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, ...point });
-};
+import {port,base,output,target,ws,errors,call,evaluate,wait,click,fill,screenshot} from "./qa-browser.mjs";
 const button = text => `[...document.querySelectorAll('.source-workbench button')].find(e=>e.textContent===${JSON.stringify(text)})`;
-const fill = async (selector, text) => evaluate(`(() => { const e=document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(text)}); e.dispatchEvent(new Event('input',{bubbles:true})); })()`);
-const screenshot = async name => { const result = await call("Page.captureScreenshot", { format: "png" }); await fs.writeFile(path.join(output, name), Buffer.from(result.data, "base64")); };
+
 try {
   await call("Page.enable"); await call("Runtime.enable");
   await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -65,7 +40,9 @@ try {
     await click(button("Create excerpt document"));
     await wait("document.querySelector('.source-document')");
     await click(button("AI compose draft"));
-    await wait("document.querySelector('.source-document').value.includes('Voyage brief')");
+    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('Cloud AI paused')");
+    const validated = await evaluate(`(async()=>{ const {parseSourcedDocument,searchNoteSources}=await import('/src/lib/sourceWorkbench.ts');const sources=await searchNoteSources(${JSON.stringify(keyword)},'en'); return parseSourcedDocument(JSON.stringify({title:'Voyage brief',sections:[{heading:'Comparison',text:'Mock comparison for manual review.',evidence:sources.map(s=>({key:s.key,quote:s.excerpt.slice(-40)}))}]}),sources).text; })()`);
+    await fill(".source-document", validated);
     await fill(".source-document", "# Reviewed voyage brief\n\nTiming remains a question. Check both sources.");
     await click(button("Export Markdown document"));
     await wait("window.__sourceQA.exports.length>0");
@@ -78,20 +55,19 @@ try {
     if (saved !== 1) throw new Error("Document was not saved");
     await evaluate("window.__sourceQA.invalid=true");
     await click(button("AI compose draft"));
-    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('Unverified source quote')");
+    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('Cloud AI paused')");
     if (!await evaluate("document.querySelector('.source-document').value.includes('Reviewed voyage brief')")) throw new Error("Invalid evidence replaced reviewed draft");
     const overflow = await evaluate("document.documentElement.scrollWidth > innerWidth+1");
     if (overflow) throw new Error(`${mode} horizontal overflow`);
     await screenshot(`${mode}.png`);
-    const request = await evaluate("window.__sourceQA.requests[0].messages.at(-1).content");
-    if (!request.includes("fragment:") || !request.includes(`card:${fixtureId}`)) throw new Error("AI missed selected sources");
+    if (await evaluate("window.__sourceQA.requests.length")) throw new Error("Cloud budget gate allowed a request");
     const intact = await evaluate(`(async()=>{const {db}=await import('/src/db.ts');const card=await db.cards.get(${JSON.stringify(fixtureId)});return card.updatedAt===1&&card.plainText.startsWith('x'.repeat(20000));})()`);
     if (!intact) throw new Error("Original source was modified");
     await evaluate("(async()=>{ const {useAppStore}=await import('/src/store.ts');useAppStore.getState().closeRightPanel();})()");
     await wait("!document.querySelector('.source-workbench')");
     await evaluate("(async()=>{ const {useAppStore}=await import('/src/store.ts');useAppStore.getState().openAI();})()");
     await wait("document.querySelector('.source-document')?.value.includes('Reviewed voyage brief')");
-    report.push({ mode, width, captured: true, oldLongNoteRetrieved: true, mockedAI: true, badQuoteRejected: true, edited: true, exported: true, saved: true, draftRetained: true, horizontalOverflow: overflow });
+    report.push({ mode, width, captured: true, oldLongNoteRetrieved: true, mockDocumentValidated: true, cloudAIBlocked: true, edited: true, exported: true, saved: true, draftRetained: true, horizontalOverflow: overflow });
   }
   if(errors.length) throw new Error(errors.join("\n"));
   await fs.writeFile(path.join(output, "report.json"), JSON.stringify({ report, errors, realAICalls: 0 }, null, 2));

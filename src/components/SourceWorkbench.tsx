@@ -27,6 +27,7 @@ export function SourceWorkbench() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const searchVersion = useRef(0);
+  const operationBusy = useRef(false);
   const finalText = draft + sourceAppendix(documentSources, language);
   useEffect(() => {
     try { localStorage.setItem("chengjing-source-draft-v1", JSON.stringify({ version: 1, goal, draft, sources: documentSources })); }
@@ -34,7 +35,8 @@ export function SourceWorkbench() {
   }, [draft, documentSources, goal, zh]);
 
   async function captureThought() {
-    if (busy || !capture.trim()) return;
+    if (operationBusy.current || busy || !capture.trim()) return;
+    operationBusy.current = true;
     setBusy(true); setError("");
     try {
       const now = Date.now(); const text = capture.trim(); const id = crypto.randomUUID();
@@ -43,15 +45,17 @@ export function SourceWorkbench() {
       setCapture(""); setResults(items => [source, ...items].slice(0, 24));
       setSelected(items => items.length < 8 ? [...items, source] : items);
     } catch (exception) { setError(String(exception)); }
-    finally { setBusy(false); }
+    finally { operationBusy.current = false; setBusy(false); }
   }
 
   async function search() {
+    if (operationBusy.current) return;
+    operationBusy.current = true;
     const version = ++searchVersion.current;
     setBusy(true); setError("");
     try { const items = await searchNoteSources(query, language); if (version === searchVersion.current) setResults(items); }
     catch (exception) { setError(String(exception)); }
-    finally { if (version === searchVersion.current) setBusy(false); }
+    finally { operationBusy.current = false; if (version === searchVersion.current) setBusy(false); }
   }
 
   function toggle(source: NoteSource) {
@@ -59,7 +63,8 @@ export function SourceWorkbench() {
   }
 
   async function compose(ai: boolean) {
-    if (busy || !goal.trim() || !selected.length) return;
+    if (operationBusy.current || busy || !goal.trim() || !selected.length) return;
+    operationBusy.current = true;
     setBusy(true); setError("");
     try {
       if (!await sourcesStillCurrent(selected)) throw new Error(zh ? "來源已變更或刪除，請重新搜尋與選取。" : "Sources changed or were deleted. Search and select them again.");
@@ -72,11 +77,12 @@ export function SourceWorkbench() {
       }
       setDraft(text); setDocumentSources([...selected]);
     } catch (exception) { setError((zh ? "未產生新文件：" : "No new document: ") + (exception instanceof Error ? exception.message : String(exception))); }
-    finally { setBusy(false); }
+    finally { operationBusy.current = false; setBusy(false); }
   }
 
   async function save(exportFile: boolean) {
-    if (!draft.trim() || busy) return;
+    if (!draft.trim() || busy || operationBusy.current) return;
+    operationBusy.current = true;
     setBusy(true); setError("");
     try {
       if (exportFile) await exportSourceDocument(finalText);
@@ -85,7 +91,7 @@ export function SourceWorkbench() {
         setError(zh ? "已另存為筆記，納入既有同步與備份。" : "Saved as a new note, included in existing sync and backups.");
       }
     } catch (exception) { setError(String(exception)); }
-    finally { setBusy(false); }
+    finally { operationBusy.current = false; setBusy(false); }
   }
 
   async function openSource(source: NoteSource) {
@@ -116,7 +122,7 @@ export function SourceWorkbench() {
     <button type="button" disabled={busy} onClick={() => setGoal(zh ? "對照所選來源，整理共同點、差異與可能關聯。每項關聯列出雙方原文證據，區分推論與事實，並指出仍需核對的問題。" : "Compare selected sources: shared themes, differences and possible relationships. Quote both sides for each relationship, distinguish inference from recorded facts, and list questions to verify.")}>{zh ? "使用來源關聯目標" : "Use source comparison goal"}</button>
     <p>{zh ? `已選 ${selected.length}/8 筆。AI 整理會把這些片段送至你目前設定的 provider；原文不會修改。` : `${selected.length}/8 selected. AI compose sends these excerpts to your configured provider; originals remain intact.`}</p>
     <div className="source-actions"><button type="button" disabled={busy || !selected.length || !goal.trim()} onClick={() => void compose(false)}>{zh ? "建立摘錄文件" : "Create excerpt document"}</button><button type="button" disabled={busy || !selected.length || !goal.trim()} onClick={() => void compose(true)}>{busy ? zh ? "處理中…" : "Working…" : zh ? "AI 整理草稿" : "AI compose draft"}</button></div>
-    {draft && <><p>{zh ? "草稿待人工核對：引用文字已驗證對應片段，但不代表 AI 推論已被證實。離開面板前請另存為筆記。" : "Review this draft: quote text is verified against excerpts, but AI inferences are not proven. Save as a note before leaving the panel."}</p><label>{zh ? "可編輯文件" : "Editable document"}<textarea className="source-document" rows={12} value={draft} disabled={busy} onChange={event => setDraft(event.target.value)} /></label><details><summary>{zh ? "附錄來源" : "Source appendix"}</summary><pre>{sourceAppendix(documentSources, language)}</pre></details><div className="source-actions"><button type="button" disabled={busy || !draft.trim()} onClick={() => void save(false)}>{zh ? "另存為筆記" : "Save document as note"}</button><button type="button" disabled={busy || !draft.trim()} onClick={() => void save(true)}>{zh ? "導出 Markdown 文件" : "Export Markdown document"}</button></div></>}
+    {draft && <><p>{zh ? "請核對草稿與附錄：AI 產生時會驗證逐字引用，手動修改不會重新驗證；引用存在不代表推論成立。離開前可另存為筆記。" : "Review draft and appendix: AI quotes are checked at generation; manual edits are not revalidated. A quote does not prove an inference. Save as a note before leaving."}</p><label>{zh ? "可編輯文件" : "Editable document"}<textarea className="source-document" rows={12} value={draft} disabled={busy} onChange={event => setDraft(event.target.value)} /></label><details><summary>{zh ? "附錄來源" : "Source appendix"}</summary><pre>{sourceAppendix(documentSources, language)}</pre></details><div className="source-actions"><button type="button" disabled={busy || !draft.trim()} onClick={() => void save(false)}>{zh ? "另存為筆記" : "Save document as note"}</button><button type="button" disabled={busy || !draft.trim()} onClick={() => void save(true)}>{zh ? "導出 Markdown 文件" : "Export Markdown document"}</button></div></>}
     {error && <p role="status">{error}</p>}
   </details>;
 }

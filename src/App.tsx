@@ -28,6 +28,7 @@ import { migrateLegacyAttachments } from "./lib/attachments";
 import { scrollIntoViewWhenReady } from "./lib/utils";
 import { MobileChrome } from "./components/MobileChrome";
 import { SyncManager } from "./components/SyncSettings";
+import { LocalReminderManager } from "./components/LocalReminderManager";
 
 let workspaceBootstrap: Promise<void> | null = null;
 const CardEditorPanel = lazy(() => import("./components/CardEditorPanel").then((module) => ({ default: module.CardEditorPanel })));
@@ -220,6 +221,7 @@ export function App() {
 
   return (
     <div className="app-shell">
+      <LocalReminderManager />
       {window.chengjing?.platform === "android" && <MobileChrome />}
       <Sidebar />
       <div className="app-main">

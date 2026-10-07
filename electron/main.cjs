@@ -1449,6 +1449,7 @@ ipcMain.handle("ai:list-models", async () => {
 });
 
 ipcMain.handle("ai:openrouter-chat", async (_event, request) => {
+  require("./cloud-budget.cjs").requireCloudBudgetAuthorization();
   const smokeMessages = Array.isArray(request?.messages) ? request.messages : [];
   if (process.env.CHENGJING_SMOKE_AI_MARKDOWN === "1" && smokeMessages.some((item) => String(item?.content || "").includes("__CHENGJING_MARKDOWN_SMOKE__"))) {
     return { text: "### 封裝 AI 回答\n\n1. **核心重點**\n   - 第一項\n   - 第二項\n\n---\n\n> 仍需回到來源確認。\n\n`KPI`<script>window.bad=true</script><img src=\"https://tracker.example/pixel\">", model: "smoke/markdown", usage: null, finishReason: "stop" };
@@ -1491,6 +1492,7 @@ ipcMain.handle("ai:provider-remove", async (_event, id) => {
 });
 
 ipcMain.handle("ai:provider-test", async (_event, id) => {
+  require("./cloud-budget.cjs").requireCloudBudgetAuthorization();
   try {
     const profile = await providerSettingsApi().providerProfileWithSecret(app.getPath("userData"), String(id || ""));
     return await providerClientApi().testProvider((url, options) => net.fetch(url, options), profile);
@@ -1505,6 +1507,7 @@ ipcMain.handle("ai:provider-models", async (_event, id) => {
 });
 
 ipcMain.handle("ai:provider-chat", async (_event, request = {}) => {
+  require("./cloud-budget.cjs").requireCloudBudgetAuthorization();
   try {
     const profile = await providerSettingsApi().providerProfileWithSecret(app.getPath("userData"), String(request.profileId || ""));
     return await providerClientApi().providerChat((url, options) => net.fetch(url, options), profile, request);

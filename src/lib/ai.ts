@@ -8,6 +8,7 @@ import type { AIMessage, AIResponse } from "./modelTypes";
 import { searchQueryTerms } from "./searchIndex";
 import { isMaterializedCard } from "./journalVisibility";
 import { searchNoteSources, sourceContext } from "./sourceWorkbench";
+import { requireCloudBudgetAuthorization } from "./secretaryBudget";
 
 function currentLanguage(): AppLanguage {
   return useAppStore.getState().language || "zh-TW";
@@ -83,6 +84,7 @@ export async function runAI(options: {
   onToken?: (text: string) => void;
   onProgress?: (progress: number, file: string) => void;
 }): Promise<AIResponse> {
+  if (options.engine !== "local-gemma") requireCloudBudgetAuthorization();
   const language = currentLanguage();
   const messages: AIMessage[] = [
     { role: "system", content: translate(language, "ai.system") },

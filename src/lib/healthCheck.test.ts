@@ -1,5 +1,8 @@
 import "fake-indexeddb/auto";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// Isolate the existing provider retry regression with a test-only authorization
+// stub; production fail-closed behavior is covered by secretary/cloud-budget tests.
+vi.mock("./secretaryBudget", () => ({ requireCloudBudgetAuthorization: () => {} }));
 import { createCard, db } from "../db";
 import { clearGlobalHistory, globalHistoryState, initializeGlobalHistory, redoGlobalAction, runGlobalHistoryAction, runWithoutGlobalHistory, undoGlobalAction } from "./globalHistory";
 import { includesQuery, searchRecords } from "./searchRecords";

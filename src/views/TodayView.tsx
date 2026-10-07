@@ -19,7 +19,7 @@ export function TodayView() {
   const openBoard = useAppStore((state) => state.openBoard);
   const setCreateCardOpen = useAppStore((state) => state.setCreateCardOpen);
   const openAI = useAppStore((state) => state.openAI);
-  const { intlLocale, t } = useI18n();
+  const { intlLocale, t, language } = useI18n();
 
   const hour = new Date().getHours();
   const greeting = hour < 11 ? t("today.morning") : hour < 18 ? t("today.afternoon") : t("today.evening");
@@ -36,6 +36,7 @@ export function TodayView() {
         <div className="hero-actions">
           <button type="button" className="primary-button" onClick={() => setCreateCardOpen(true)}><FilePlus2 size={16} />{t("today.newCard")}</button>
           <button type="button" className="secondary-button" onClick={openAI}><Sparkles size={16} />{t("today.discussAI")}</button>
+          <button type="button" className="secondary-button" onClick={() => setView("tasks")}><CalendarClock size={16} />{language.startsWith("zh") ? "隨身秘書" : "Local secretary"}</button>
         </div>
       </section>
 

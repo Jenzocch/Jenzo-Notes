@@ -272,6 +272,7 @@ export function AIPanel() {
       </div>
 
       <div className="ai-messages" ref={scrollRef}>
+        {engine !== "local-gemma" && <p className="ai-error">{language.startsWith("zh") ? "雲端 AI 暫停：共用預算帳本與可信費率尚未設定。本機輸入、搜尋、摘錄與提醒可繼續使用。" : "Cloud AI paused: a shared budget coordinator and verified pricing are not configured. Local capture, search, excerpts and reminders remain available."}</p>}
         <SourceWorkbench />
         {conversationReady && messages.length === 0 && !loading && (
           <div className="ai-empty">
