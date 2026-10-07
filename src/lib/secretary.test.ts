@@ -1,10 +1,13 @@
 import "fake-indexeddb/auto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
-import { acknowledgeReminder, cancelLocalReminder, checkDueReminders, confirmReminder, importSelectedMockSources, listReminders, parseReminder, simulateDestination, wallTimeCandidates } from "./secretary";
+import { acknowledgeReminder, cancelLocalReminder, checkDueReminders, confirmReminder, importSelectedMockSources, listReminders, mutateReminderTask, parseReminder, reminderDisplayTime, simulateDestination, wallTimeCandidates } from "./secretary";
+import { listPrivateItems, lockSecureVault, readSecureVault, secureVaultTransaction, unlockSecureVault } from "./secureSecretary";
+import { mockSecretaryVault } from "./secureSecretary.fixture";
 import { conservativeMockCost, requireCloudBudgetAuthorization, reserveMockCost } from "./secretaryBudget";
 import { startLocalSpeech, type LocalRecognitionConstructor } from "./localSpeech";
-afterEach(async () => { await db.preferences.clear(); await db.tasks.clear(); await db.fragments.clear(); }, 30000);
+beforeEach(async () => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-07T12:00Z")); window.chengjing = { secretaryVault: mockSecretaryVault() } as NonNullable<Window["chengjing"]>; await unlockSecureVault(); });
+afterEach(async () => { await lockSecureVault(); window.chengjing = undefined; vi.useRealTimers(); await db.preferences.clear(); await db.tasks.clear(); await db.fragments.clear(); }, 30000);
 const plan = (repeat: "once" | "daily" | "weekly" = "once") => parseReminder("synthetic reminder", "2026-10-08T09:00", "Asia/Taipei", repeat, ["local", "calendar-mock", "clock-mock"]);
 describe("local reminder proposals", () => {
   it("uses the requested IANA zone and rejects invalid dates, gaps and ambiguous DST times", () => {
@@ -19,12 +22,12 @@ describe("local reminder proposals", () => {
   it("creates nothing until confirmation, and concurrent confirmations create exactly one task/operation", async () => {
     const proposal = plan(); expect(await db.tasks.count()).toBe(0);
     await Promise.all([confirmReminder(proposal), confirmReminder(proposal)]);
-    expect(await db.tasks.count()).toBe(1); expect(await listReminders()).toHaveLength(1);
+    expect(await db.tasks.count()).toBe(0); expect(await listPrivateItems()).toHaveLength(1); expect(await listReminders()).toHaveLength(1);
     await expect(confirmReminder({ ...proposal, title: "changed payload" })).rejects.toThrow(/another proposal/);
-    expect(await db.tasks.count()).toBe(1);
+    expect(await db.tasks.count()).toBe(0); expect(await listPrivateItems()).toHaveLength(1);
   });
   it("reopens the database offline, catches up overdue reminders and deduplicates acknowledgements", async () => {
-    const proposal = plan(); await confirmReminder(proposal); db.close(); await db.open();
+    const proposal = plan(); await confirmReminder(proposal); await lockSecureVault(); await unlockSecureVault();
     expect(await checkDueReminders(proposal.instant - 1)).toHaveLength(0);
     expect(await checkDueReminders(proposal.instant + 1)).toHaveLength(1);
     await Promise.all([acknowledgeReminder(proposal.id, proposal.instant + 1), acknowledgeReminder(proposal.id, proposal.instant + 1)]);
@@ -38,6 +41,7 @@ describe("local reminder proposals", () => {
     expect((await listReminders())[0].nextDueAt).toBe(proposal.instant + 7 * 86400000);
   });
   it("keeps local wall time across DST and pauses a nonexistent recurrence for review", async () => {
+    vi.setSystemTime(new Date("2026-03-06T12:00Z"));
     const proposal = parseReminder("x", "2026-03-07T02:30", "America/New_York", "daily", ["local"]);
     await confirmReminder(proposal); await checkDueReminders(proposal.instant); await acknowledgeReminder(proposal.id, proposal.instant);
     expect((await listReminders())[0].status).toBe("needs-review");
@@ -47,12 +51,51 @@ describe("local reminder proposals", () => {
   });
   it("cancels only in-app reminder state, retaining task and source operation", async () => {
     const proposal = plan(); await confirmReminder(proposal); await cancelLocalReminder(proposal.id);
-    expect(await checkDueReminders(proposal.instant + 1)).toEqual([]); expect(await db.tasks.count()).toBe(1);
+    expect(await checkDueReminders(proposal.instant + 1)).toEqual([]); expect(await listPrivateItems()).toHaveLength(1); expect(await db.tasks.count()).toBe(0);
   });
   it("does not execute malformed imported reminder records", async () => {
-    await db.preferences.put({ key: "secretary-operation:bad", value: { id: "bad", title: "imported" } });
+    await secureVaultTransaction(data => { data.entries["secretary-operation:bad"] = { id: "bad", title: "imported" }; });
     await expect(checkDueReminders()).rejects.toThrow(/original data retained/);
     expect(await db.tasks.count()).toBe(0);
+  });
+  it("completing/deleting a private task cancels its reminder in the same vault commit", async () => {
+    for (const patch of [{ done: true }, { delete: true }]) {
+      const proposal = plan(); const operation = await confirmReminder(proposal);
+      await mutateReminderTask(operation.taskId, patch);
+      await lockSecureVault(); await unlockSecureVault();
+      expect((await checkDueReminders(proposal.instant + 1)).some(value => value.id === proposal.id)).toBe(false);
+      expect((await listReminders()).find(value => value.id === proposal.id)?.status).toBe("cancelled");
+    }
+  });
+  it("edits linked title/time atomically and shows the actual next recurrence", async () => {
+    const proposal = plan("daily"); const operation = await confirmReminder(proposal);
+    const dueAt = proposal.instant + 86400000;
+    await mutateReminderTask(operation.taskId, { title: "changed private title", dueAt });
+    expect(await checkDueReminders(proposal.instant + 1)).toEqual([]);
+    expect((await listReminders())[0].title).toBe("changed private title");
+    await checkDueReminders(dueAt); await acknowledgeReminder(proposal.id, dueAt);
+    const next = (await listReminders())[0];
+    expect(reminderDisplayTime(next)).toBe("2026-10-10T09:00");
+    expect(next.wallTime).toBe(reminderDisplayTime(next));
+    expect((await listPrivateItems())[0]).toMatchObject({ dueAt: dueAt + 86400000 });
+    expect((await confirmReminder(proposal)).id).toBe(proposal.id); // Retry binding survives edits.
+  });
+  it("rejects stale/crossed-time consent and requires a fresh explicit overdue confirmation", async () => {
+    const stale = plan(); vi.setSystemTime(new Date(stale.issuedAt + 2 * 86400000));
+    await expect(confirmReminder(stale)).rejects.toThrow(/expired/); expect(await listReminders()).toEqual([]);
+    vi.setSystemTime(new Date("2026-10-07T12:00Z"));
+    const near = parseReminder("near", "2026-10-07T12:01", "UTC", "once", ["local"]);
+    vi.setSystemTime(new Date("2026-10-07T12:02Z"));
+    await expect(confirmReminder(near, { acknowledgeOverdue: true })).rejects.toThrow(/fresh preview/);
+    const fresh = parseReminder("near", "2026-10-07T12:01", "UTC", "once", ["local"]);
+    await expect(confirmReminder(fresh)).rejects.toThrow(/explicitly confirm/);
+    await confirmReminder(fresh, { acknowledgeOverdue: true }); expect(await checkDueReminders()).toHaveLength(1);
+  });
+  it("does not read or migrate old plaintext secretary records automatically", async () => {
+    const value = { id: "old", title: "old private title", status: "scheduled", nextDueAt: 1 };
+    await db.preferences.put({ key: "secretary-operation:old", value });
+    expect(await listReminders()).toEqual([]); expect(await checkDueReminders()).toEqual([]);
+    expect((await db.preferences.get("secretary-operation:old"))?.value).toEqual(value);
   });
 });
 describe("consent-scoped mock connectors", () => {
@@ -73,8 +116,8 @@ describe("consent-scoped mock connectors", () => {
     await expect(importSelectedMockSources(["drive-demo-1"], false, operation)).rejects.toThrow();
     await expect(importSelectedMockSources(["unselected-private-file"], true, operation)).rejects.toThrow();
     await Promise.all([importSelectedMockSources(["drive-demo-1"], true, operation), importSelectedMockSources(["drive-demo-1"], true, operation)]);
-    expect(await db.fragments.count()).toBe(1);
-    expect((await db.fragments.toArray())[0].text).not.toContain("Notion");
+    expect(await db.fragments.count()).toBe(0); expect(await listPrivateItems()).toHaveLength(1);
+    expect((await listPrivateItems())[0].plainText).not.toContain("Notion");
   });
 });
 describe("budget fail closed and atomic mock reservations", () => {
@@ -95,9 +138,9 @@ describe("budget fail closed and atomic mock reservations", () => {
   it("rejects malformed imported ledgers without altering the original record", async () => {
     const key = "secretary-mock-budget:2026-10";
     const value = { reservations: [{ operationId: "bad-import", quote: "unknown", reservedUnits: -1000000 }] };
-    await db.preferences.put({ key, value });
+    await secureVaultTransaction(data => { data.entries[key] = value; });
     await expect(reserveMockCost(crypto.randomUUID(), quote, "2026-10")).rejects.toThrow(/Invalid mock ledger/);
-    expect((await db.preferences.get(key))?.value).toEqual(value);
+    expect((await readSecureVault()).data.entries[key]).toEqual(value);
   });
 });
 describe("on-device speech only", () => {

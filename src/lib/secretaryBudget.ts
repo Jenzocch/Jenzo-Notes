@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { secureVaultTransaction } from "./secureSecretary";
 
 export function requireCloudBudgetAuthorization() {
   // A device-local counter cannot enforce the user's shared monthly target.
@@ -17,15 +17,15 @@ export function conservativeMockCost(quote: MockQuote) {
 export async function reserveMockCost(operationId: string, quote: MockQuote, month = new Date().toISOString().slice(0, 7)) {
   if (!/^[\w-]{8,100}$/.test(operationId) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Invalid reservation");
   const units = conservativeMockCost(quote); const signature = JSON.stringify(quote);
-  return db.transaction("rw", db.preferences, async () => {
+  return secureVaultTransaction(data => {
     const key = `secretary-mock-budget:${month}`;
-    const ledger = (await db.preferences.get(key))?.value as MockLedger | undefined || { reservations: [] };
-    if (!Array.isArray(ledger.reservations) || ledger.reservations.some(item => !item || typeof item.operationId !== "string" || typeof item.quote !== "string" || !Number.isSafeInteger(item.reservedUnits) || item.reservedUnits <= 0) || new Set(ledger.reservations.map(item => item.operationId)).size !== ledger.reservations.length) throw new Error("Invalid mock ledger: fail closed; original data retained");
+    const ledger = (data.entries[key] === undefined ? { reservations: [] } : data.entries[key]) as MockLedger;
+    if (!ledger || !Array.isArray(ledger.reservations) || ledger.reservations.some(item => !item || typeof item.operationId !== "string" || typeof item.quote !== "string" || !Number.isSafeInteger(item.reservedUnits) || item.reservedUnits <= 0) || new Set(ledger.reservations.map(item => item.operationId)).size !== ledger.reservations.length) throw new Error("Invalid mock ledger: fail closed; original data retained");
     const prior = ledger.reservations.find(item => item.operationId === operationId);
     if (prior) { if (prior.quote !== signature) throw new Error("Reservation ID reused with different cost"); return prior.reservedUnits / 10000; }
     const total = ledger.reservations.reduce((sum, item) => sum + item.reservedUnits, 0);
     if (!Number.isSafeInteger(total) || total + units > 100 * 10000) throw new Error("Mock monthly budget exhausted");
     ledger.reservations.push({ operationId, quote: signature, reservedUnits: units });
-    await db.preferences.put({ key, value: ledger }); return units / 10000;
+    data.entries[key] = ledger; return units / 10000;
   });
 }

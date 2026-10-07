@@ -20,7 +20,7 @@ const call = (method, params = {}) => new Promise((resolve, reject) => { const r
 const evaluate = async expression => { const result = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text); return result.result.value; };
 const wait = async expression => { const start = Date.now(); while (Date.now() - start < 20000) { if (await evaluate(`Boolean(${expression})`)) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw new Error(`Timed out: ${expression}`); };
 const click = async expression => {
-  await wait(`(${expression}) && !(${expression}).disabled`);
+  await wait(`(${expression}) && !(${expression}).matches(':disabled')`);
   const point = await evaluate(`(() => { const el = ${expression}; if(!el) throw new Error('Missing click target'); el.scrollIntoView({block:'center'}); const r=el.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
   await call("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, ...point });
   await call("Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, ...point });

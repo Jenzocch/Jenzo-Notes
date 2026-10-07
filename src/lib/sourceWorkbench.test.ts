@@ -2,7 +2,8 @@ import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it } from "vitest";
 import { db } from "../db";
 import type { CardRecord } from "../types";
-import { excerptDocument, matchingExcerpt, parseSourcedDocument, searchNoteSources, sourceAppendix, sourcesStillCurrent, type NoteSource } from "./sourceWorkbench";
+import { excerptDocument, matchingExcerpt, normalizedSourceUrl, parseSourcedDocument, safeDocumentExport, searchNoteSources, sourceAppendix, sourcesStillCurrent, type NoteSource } from "./sourceWorkbench";
+import { marked } from "marked";
 import { renderSafeMarkdown } from "./safeMarkdown";
 
 const card = (id: string, text: string, updatedAt = 1): CardRecord => ({ id, title: id, plainText: text, contentHtml: "", kind: "note", state: "active", createdAt: updatedAt, updatedAt, tagIds: [], favorite: false, color: "slate", attachmentIds: [], properties: {} });
@@ -63,5 +64,16 @@ describe("document evidence", () => {
     const html = renderSafeMarkdown(parseSourcedDocument(raw, [literal]).text);
     expect(html).not.toContain("<a "); expect(html).not.toContain("<strong>"); expect(html).not.toContain("<script>");
     expect(html).toContain("**untrusted emphasis**");
+  });
+  it("exports generated/edited HTML, image Markdown, reference images and fence attacks as inert text", () => {
+    const malicious = { ...source, sourceUrl: 'https://example.invalid/\n\n<img src="https://tracker.invalid/private">' };
+    const raw = JSON.stringify({ title: "<script>title()</script>", sections: [{ heading: '<img src="https://tracker.invalid/h">', text: '<script>run()</script> ![tracker](https://tracker.invalid)\n![ref][r]\n[r]: https://tracker.invalid', evidence: [{ key: source.key, quote: "We plan to sail next year." }] }] });
+    const text = parseSourcedDocument(raw, [malicious]).text + sourceAppendix([malicious], "en") + '\n~~~\n<img src="https://tracker.invalid/edited">\n~~~~~';
+    const exported = safeDocumentExport(text); const html = marked.parse(exported) as string;
+    expect(html).not.toMatch(/<(img|script|iframe|a|video|audio)\b/i);
+    expect(html).toContain("We plan to sail next year"); expect(exported).toContain("card:old"); expect(exported).toContain("tracker");
+    expect(normalizedSourceUrl(malicious.sourceUrl)).toBeNull();
+    expect(normalizedSourceUrl("https://user:password@example.com/")).toBeNull(); expect(normalizedSourceUrl("javascript:alert(1)")).toBeNull();
+    expect(normalizedSourceUrl("https://EXAMPLE.com/a?b=1")).toBe("https://example.com/a?b=1");
   });
 });

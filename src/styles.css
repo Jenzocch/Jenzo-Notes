@@ -1729,3 +1729,7 @@ html[data-quick-capture="true"], html[data-quick-capture="true"] body, html[data
 .secretary-panel label small { grid-column: 2; }
 .secretary-panel button { min-height: 44px; max-width: 100%; }
 .hero-actions { flex-wrap: wrap; }
+.secretary-panel .secretary-sensitive { min-width: 0; padding: 0; border: 0; }
+.secretary-panel .secretary-sensitive > label, .secretary-sensitive details label { display: grid; }
+.secure-vault-controls { border: 1px solid var(--border); padding: 10px; border-radius: 8px; margin-block: 10px; }
+.secretary-sensitive:disabled { opacity: .65; }

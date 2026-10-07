@@ -1,14 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { qaPrivateVaultSource } from "./qa-private-vault.mjs";
 import {port,base,output,target,ws,errors,call,evaluate,wait,click,fill,screenshot} from "./qa-browser.mjs";
 const button = text => `[...document.querySelectorAll('.source-workbench button')].find(e=>e.textContent===${JSON.stringify(text)})`;
 
 try {
   await call("Page.enable"); await call("Runtime.enable");
   await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
-  await call("Page.addScriptToEvaluateOnNewDocument", { source: `
+  await call("Page.addScriptToEvaluateOnNewDocument", { source: qaPrivateVaultSource + `
     window.__sourceQA={requests:[],exports:[],invalid:false};
-    window.chengjing={platform:screen.width<600?'android':'win32',onShortcut:()=>()=>{},files:{save:async p=>{window.__sourceQA.exports.push(p);return {canceled:false}}},ai:{keyStatus:async()=>({configured:true,encrypted:true}),listModels:async()=>[],openRouterChat:async p=>{
+    window.chengjing={secretaryVault:window.__qaPrivateVaultBridge,platform:screen.width<600?'android':'win32',onShortcut:()=>()=>{},files:{save:async p=>{window.__sourceQA.exports.push(p);return {canceled:false}}},ai:{keyStatus:async()=>({configured:true,encrypted:true}),listModels:async()=>[],openRouterChat:async p=>{
       window.__sourceQA.requests.push(p);
       const content=p.messages.at(-1).content;
       const raw=content.slice(content.indexOf('>\\n')+2,content.indexOf('\\n</reference_material>'));
@@ -28,7 +29,8 @@ try {
     await new Promise(resolve => setTimeout(resolve, 400));
     await click("document.querySelector('.source-workbench summary')");
     await wait("document.querySelector('.source-workbench').open");
-    await fill(".source-workbench > label textarea", `${keyword} idea: plan next year. https://example.com/idea`);
+    await click(button("Unlock private storage")); await wait("!document.querySelector('.source-workbench > fieldset').disabled");
+    await fill(".source-workbench > fieldset textarea", `${keyword} idea: plan next year. https://example.com/idea`);
     await click(button("Capture and select"));
     await wait("document.querySelector('.source-selection button')");
     await fill(".source-workbench form input", keyword);
@@ -48,10 +50,10 @@ try {
     await wait("window.__sourceQA.exports.length>0");
     const exported = await evaluate("window.__sourceQA.exports.at(-1).data");
     await fs.writeFile(path.join(output, `${mode}-document.md`), exported);
-    if (!exported.includes("Reviewed voyage brief") || !exported.includes("fragment:") || !exported.includes(`card:${fixtureId}`) || !exported.includes("https://example.com/voyage")) throw new Error("Export lost document or source provenance");
+    if (!exported.includes("Reviewed voyage brief") || !exported.includes("private:") || !exported.includes(`card:${fixtureId}`) || !exported.includes("https://example.com/voyage") || !exported.startsWith("~~~text")) throw new Error("Export lost inert text or source provenance");
     await click(button("Save document as note"));
-    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('Saved as a new note')");
-    const saved = await evaluate(`(async()=>{const {db}=await import('/src/db.ts');return (await db.cards.toArray()).filter(c=>c.title==='Reviewed voyage brief'&&c.plainText.includes(${JSON.stringify(fixtureId)})).length})()`);
+    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('Saved in private encrypted vault')");
+    const saved = await evaluate(`(async()=>{const {listPrivateItems}=await import('/src/lib/secureSecretary.ts');return (await listPrivateItems()).filter(c=>c.title.includes('Reviewed voyage brief')&&c.plainText.includes(${JSON.stringify(fixtureId)})).length})()`);
     if (saved !== 1) throw new Error("Document was not saved");
     await evaluate("window.__sourceQA.invalid=true");
     await click(button("AI compose draft"));
@@ -63,11 +65,13 @@ try {
     if (await evaluate("window.__sourceQA.requests.length")) throw new Error("Cloud budget gate allowed a request");
     const intact = await evaluate(`(async()=>{const {db}=await import('/src/db.ts');const card=await db.cards.get(${JSON.stringify(fixtureId)});return card.updatedAt===1&&card.plainText.startsWith('x'.repeat(20000));})()`);
     if (!intact) throw new Error("Original source was modified");
+    await click(button("Save encrypted draft")); await wait("document.querySelector('.source-workbench [role=status]')?.textContent==='Encrypted draft saved'");
+    if(!await evaluate("localStorage.getItem('chengjing-source-draft-v1')===null && !Object.values(localStorage).some(v=>v.includes('Reviewed voyage brief'))"))throw new Error("Plaintext draft persisted");
     await evaluate("(async()=>{ const {useAppStore}=await import('/src/store.ts');useAppStore.getState().closeRightPanel();})()");
     await wait("!document.querySelector('.source-workbench')");
     await evaluate("(async()=>{ const {useAppStore}=await import('/src/store.ts');useAppStore.getState().openAI();})()");
     await wait("document.querySelector('.source-document')?.value.includes('Reviewed voyage brief')");
-    report.push({ mode, width, captured: true, oldLongNoteRetrieved: true, mockDocumentValidated: true, cloudAIBlocked: true, edited: true, exported: true, saved: true, draftRetained: true, horizontalOverflow: overflow });
+    report.push({ mode, width, encryptedCapture: true, oldLongNoteRetrieved: true, mockDocumentValidated: true, cloudAIBlocked: true, edited: true, inertTextExported: true, privateNoteSaved: true, encryptedDraftRetained: true, noPlaintextDraft: true, horizontalOverflow: overflow, vaultBoundary:"MOCK; real Windows crypto verified separately" });
   }
   if(errors.length) throw new Error(errors.join("\n"));
   await fs.writeFile(path.join(output, "report.json"), JSON.stringify({ report, errors, realAICalls: 0 }, null, 2));

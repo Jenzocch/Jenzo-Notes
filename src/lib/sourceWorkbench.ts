@@ -1,10 +1,11 @@
 import { db } from "../db";
 import type { AppLanguage } from "../types";
 import { isMaterializedCard } from "./journalVisibility";
+import { listPrivateItems, secureVaultStatus } from "./secureSecretary";
 
 export interface NoteSource {
   key: string;
-  type: "card" | "fragment";
+  type: "card" | "fragment" | "private";
   id: string;
   title: string;
   excerpt: string;
@@ -60,13 +61,17 @@ export async function searchNoteSources(query: string, _language: AppLanguage, l
     });
     await db.fragments.each(fragment => collect({ key: `fragment:${fragment.id}`, type: "fragment", id: fragment.id, title: fragment.text.split("\n")[0].slice(0, 80), updatedAt: fragment.updatedAt }, fragment.text));
   });
+  if ((await secureVaultStatus()).state === "unlocked") {
+    for (const item of await listPrivateItems()) collect({ key: `private:${item.id}`, type: "private", id: item.id, title: item.title, updatedAt: item.updatedAt }, item.plainText);
+  }
   return ranked.map(entry => entry.source);
 }
 
 export async function sourcesStillCurrent(sources: NoteSource[]) {
+  const privateItems = sources.some(source => source.type === "private") ? await listPrivateItems() : [];
   return db.transaction("r", db.cards, db.fragments, async () => {
     for (const source of sources) {
-      const record = source.type === "card" ? await db.cards.get(source.id) : await db.fragments.get(source.id);
+      const record = source.type === "private" ? privateItems.find(item => item.id === source.id) : source.type === "card" ? await db.cards.get(source.id) : await db.fragments.get(source.id);
       if (!record || record.updatedAt !== source.updatedAt) return false;
       if ("state" in record && record.state === "trash") return false;
       const text = "plainText" in record ? record.plainText : record.text;
@@ -101,27 +106,45 @@ export function parseSourcedDocument(raw: string, sources: NoteSource[]) {
       if (!used.some(item => item.key === source.key)) used.push(source);
       return `> ${literalMarkdown(item.quote).replace(/\n/g, "\n> ")}\n> [${sources.indexOf(source) + 1}]`;
     });
-    return `## ${section.heading}\n\n${section.text}\n\n${evidence.join("\n\n")}`;
+    return `## ${literalMarkdown(section.heading)}\n\n${literalMarkdown(section.text)}\n\n${evidence.join("\n\n")}`;
   });
-  return { text: `# ${parsed.title}\n\n${sections.join("\n\n")}`, used };
+  return { text: `# ${literalMarkdown(parsed.title)}\n\n${sections.join("\n\n")}`, used };
+}
+
+export function normalizedSourceUrl(value: string) {
+  if (value.length > 2048 || /[\u0000-\u0020\u007f<>`"\\]/.test(value)) return null;
+  try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && url.hostname ? url.href : null; } catch { return null; }
 }
 
 export function sourceAppendix(sources: NoteSource[], language: AppLanguage) {
   const zh = language.startsWith("zh");
   return `\n\n---\n\n## ${zh ? "來源（原文節錄快照）" : "Sources (excerpt snapshots)"}\n\n` + sources.map((source, index) => {
-    const url = source.sourceUrl && /^https?:\/\//i.test(source.sourceUrl) ? `\n${source.sourceUrl}` : "";
+    const normalized = source.sourceUrl ? normalizedSourceUrl(source.sourceUrl) : null;
+    const url = normalized ? `\nURL: \`${normalized}\`` : source.sourceUrl ? `\nURL supplied (unsafe text, not a link):\n> ${literalMarkdown(source.sourceUrl.slice(0, 2048)).replace(/\n/g, "\n> ")}` : "";
     return `### [${index + 1}] ${literalMarkdown(source.title.replace(/\n/g, " "))}\n\nID: \`${source.key.replace(/[`\r\n]/g, " ")}\`\n${zh ? "更新時間" : "Updated"}: ${new Date(source.updatedAt).toISOString()}${url}\n\n> ${literalMarkdown(source.excerpt).replace(/\n/g, "\n> ")}`;
   }).join("\n\n");
 }
 
 export function excerptDocument(goal: string, sources: NoteSource[], language: AppLanguage) {
+  goal = literalMarkdown(goal);
   return `# ${goal}\n\n${language.startsWith("zh") ? "待整理的來源摘錄；下列片段由使用者選取，尚未推定彼此關係。" : "Selected source excerpts. Relationships between these notes have not been inferred."}`;
 }
 
+/** External Markdown viewers get inert literal text, not active HTML/images/links.
+ * Preserve the edited document; use a fence longer than every matching run.
+ */
+export function safeDocumentExport(text: string) {
+  if (text.length > 512000) throw new Error("Document export too large");
+  let longest = 2;
+  for (const match of text.matchAll(/~+/g)) longest = Math.max(longest, match[0].length);
+  const fence = "~".repeat(longest + 1);
+  return `${fence}text\n${text}\n${fence}\n`;
+}
 export async function exportSourceDocument(text: string) {
+  const data = safeDocumentExport(text);
   const name = `notes-document-${new Date().toISOString().slice(0, 10)}.md`;
-  if (window.chengjing) return window.chengjing.files.save({ title: "Export Markdown", defaultPath: name, filters: [{ name: "Markdown", extensions: ["md"] }], data: text });
-  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+  if (window.chengjing) return window.chengjing.files.save({ title: "Export safe text document", defaultPath: name, filters: [{ name: "Markdown (inert text)", extensions: ["md"] }], data });
+  const url = URL.createObjectURL(new Blob([data], { type: "text/markdown;charset=utf-8" }));
   const link = document.createElement("a"); link.href = url; link.download = name; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return { canceled: false };

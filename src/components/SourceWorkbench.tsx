@@ -1,28 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import { createCard, db } from "../db";
+import { db } from "../db";
 import { useI18n } from "../hooks/useI18n";
 import { useAppStore } from "../store";
 import { runAI } from "../lib/ai";
-import { renderSafeMarkdown } from "../lib/safeMarkdown";
+import { useSecureVault } from "../hooks/useSecureVault";
+import { SecureVaultControls } from "./SecureVaultControls";
+import { listPrivateItems, readSecureVault, savePrivateItem, secureVaultTransaction } from "../lib/secureSecretary";
 import { documentPrompt, excerptDocument, exportSourceDocument, parseSourcedDocument, searchNoteSources, sourceAppendix, sourceContext, sourcesStillCurrent, type NoteSource } from "../lib/sourceWorkbench";
 
 export function SourceWorkbench() {
   const { language } = useI18n();
   const zh = language.startsWith("zh");
-  const [saved] = useState(() => {
-    try {
-      const value = JSON.parse(localStorage.getItem("chengjing-source-draft-v1") || "null");
-      if (value?.version === 1 && typeof value.draft === "string" && typeof value.goal === "string" && Array.isArray(value.sources) && value.sources.length <= 8 && value.sources.every((source: NoteSource) => typeof source.key === "string" && typeof source.title === "string" && typeof source.excerpt === "string" && Number.isFinite(source.updatedAt))) return value as { draft: string; goal: string; sources: NoteSource[] };
-    } catch { /* A corrupt local draft must not prevent opening the workspace. */ }
-    return { draft: "", goal: "", sources: [] as NoteSource[] };
-  });
+  const { status: vaultStatus } = useSecureVault();
   const [capture, setCapture] = useState("");
   const [query, setQuery] = useState("");
-  const [goal, setGoal] = useState(saved.goal);
+  const [goal, setGoal] = useState("");
   const [results, setResults] = useState<NoteSource[]>([]);
   const [selected, setSelected] = useState<NoteSource[]>([]);
-  const [documentSources, setDocumentSources] = useState<NoteSource[]>(saved.sources);
-  const [draft, setDraft] = useState(saved.draft);
+  const [documentSources, setDocumentSources] = useState<NoteSource[]>([]);
+  const [draft, setDraft] = useState("");
   const [original, setOriginal] = useState<{ title: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -30,18 +26,28 @@ export function SourceWorkbench() {
   const operationBusy = useRef(false);
   const finalText = draft + sourceAppendix(documentSources, language);
   useEffect(() => {
-    try { localStorage.setItem("chengjing-source-draft-v1", JSON.stringify({ version: 1, goal, draft, sources: documentSources })); }
-    catch { setError(zh ? "無法保留本機草稿，請另存為筆記。" : "Unable to retain local draft. Save as a note."); }
-  }, [draft, documentSources, goal, zh]);
+    let active = true;
+    if (vaultStatus.state !== "unlocked") { setCapture(""); setQuery(""); setGoal(""); setDraft(""); setDocumentSources([]); setSelected([]); setResults([]); setOriginal(null); setError(""); }
+    else void readSecureVault().then(snapshot => {
+      const saved = snapshot.data.entries["source-draft-v2"] as { version: number; draft: string; goal: string; sources: NoteSource[] } | undefined;
+      if (active && saved?.version === 2 && typeof saved.draft === "string" && typeof saved.goal === "string" && Array.isArray(saved.sources) && saved.sources.length <= 8) { setGoal(saved.goal); setDraft(saved.draft); setDocumentSources(saved.sources); }
+    }).catch(() => { if (active) setError("Encrypted draft unavailable; original data retained"); });
+    return () => { active = false; };
+  }, [vaultStatus.state]);
+  async function saveEncryptedDraft() {
+    if (operationBusy.current || vaultStatus.state !== "unlocked") return; operationBusy.current = true; setBusy(true);
+    try { await secureVaultTransaction(data => { data.entries["source-draft-v2"] = { version: 2, goal, draft, sources: documentSources }; }); setError("Encrypted draft saved"); }
+    catch (error) { setError(error instanceof Error ? error.message : "Encrypted draft save failed"); }
+    finally { operationBusy.current = false; setBusy(false); }
+  }
 
   async function captureThought() {
-    if (operationBusy.current || busy || !capture.trim()) return;
+    if (operationBusy.current || busy || !capture.trim() || vaultStatus.state !== "unlocked") return;
     operationBusy.current = true;
     setBusy(true); setError("");
     try {
-      const now = Date.now(); const text = capture.trim(); const id = crypto.randomUUID();
-      await db.fragments.add({ id, text, tagIds: [], pinned: false, createdAt: now, updatedAt: now });
-      const source: NoteSource = { key: `fragment:${id}`, id, type: "fragment", title: text.split("\n")[0].slice(0, 80), excerpt: text.slice(0, 1600), updatedAt: now, matched: [] };
+      const text = capture.trim(); const item = await savePrivateItem("note", text);
+      const source: NoteSource = { key: `private:${item.id}`, id: item.id, type: "private", title: item.title, excerpt: text.slice(0, 1600), updatedAt: item.updatedAt, matched: [] };
       setCapture(""); setResults(items => [source, ...items].slice(0, 24));
       setSelected(items => items.length < 8 ? [...items, source] : items);
     } catch (exception) { setError(String(exception)); }
@@ -87,8 +93,8 @@ export function SourceWorkbench() {
     try {
       if (exportFile) await exportSourceDocument(finalText);
       else {
-        await createCard({ title: draft.match(/^#\s+(.+)/m)?.[1] || goal || "Notes document", kind: "note", state: "active", contentHtml: renderSafeMarkdown(finalText), plainText: finalText, properties: { sourceKeys: documentSources.map(source => source.key) } });
-        setError(zh ? "已另存為筆記，納入既有同步與備份。" : "Saved as a new note, included in existing sync and backups.");
+        await savePrivateItem("note", finalText);
+        setError(zh ? "已存為私人加密筆記；不納入舊明文同步／備份。" : "Saved in private encrypted vault; outside legacy sync/plaintext backups.");
       }
     } catch (exception) { setError(String(exception)); }
     finally { operationBusy.current = false; setBusy(false); }
@@ -96,7 +102,7 @@ export function SourceWorkbench() {
 
   async function openSource(source: NoteSource) {
     try {
-      const record = source.type === "card" ? await db.cards.get(source.id) : await db.fragments.get(source.id);
+      const record = source.type === "private" ? (await listPrivateItems()).find(item => item.id === source.id) : source.type === "card" ? await db.cards.get(source.id) : await db.fragments.get(source.id);
       if (!record || ("state" in record && record.state === "trash")) throw new Error(zh ? "來源已刪除。" : "Source was deleted.");
       setOriginal({ title: source.title, text: "plainText" in record ? record.plainText : record.text });
     } catch (exception) { setError(String(exception)); }
@@ -104,8 +110,13 @@ export function SourceWorkbench() {
 
   return <details className="source-workbench">
     <summary>{zh ? "來源工作台 · 搜尋到文件" : "Source workbench · Search to document"}</summary>
+    <SecureVaultControls />
+    <p>{zh ? "草稿只在記憶體；請明確儲存加密草稿。導出是防止 HTML／遠端圖片啟動的純文字 Markdown。舊資料不會自動遷移。" : "Drafts stay in memory until explicitly saved encrypted. Export is inert text Markdown, with no active HTML or remote images. Old data is not automatically migrated."}</p>
+    <button disabled={busy || vaultStatus.state !== "unlocked" || !draft.trim()} onClick={() => void saveEncryptedDraft()}>{zh ? "儲存加密草稿" : "Save encrypted draft"}</button>
+    <fieldset disabled={busy || vaultStatus.state !== "unlocked"}>
     <p>{zh ? "先用關鍵字搜尋全部卡片與片語，再選取來源。只整理你選取的片段；可移除來源或修正文稿。" : "Search all cards and thoughts by keyword, then select sources. Only selected excerpts are used; remove sources or edit the draft."}</p>
     <label>{zh ? "快速加入想法或貼資料" : "Capture an idea or paste material"}<textarea rows={2} value={capture} disabled={busy} onChange={event => setCapture(event.target.value)} /></label><button type="button" disabled={busy || !capture.trim()} onClick={() => void captureThought()}>{zh ? "留下並選取" : "Capture and select"}</button>
+    </fieldset>
     <form onSubmit={event => { event.preventDefault(); void search(); }}>
       <label>{zh ? "來源關鍵字" : "Source keywords"}<input value={query} disabled={busy} onChange={event => setQuery(event.target.value)} /></label>
       <button disabled={busy || !query.trim()}>{zh ? "搜尋來源" : "Search sources"}</button>

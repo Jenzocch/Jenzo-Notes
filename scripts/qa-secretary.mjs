@@ -1,14 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { qaPrivateVaultSource } from "./qa-private-vault.mjs";
 process.env.JENZO_QA_OUTPUT = "qa-artifacts/secretary";
 const {port,base,output,target,ws,errors,call,evaluate,wait,click,fill,screenshot} = await import("./qa-browser.mjs");
 const button = text => `[...document.querySelectorAll('.secretary-panel button')].find(e=>e.textContent===${JSON.stringify(text)})`;
 try {
   await call("Page.enable"); await call("Runtime.enable");
   await call("Emulation.setEmulatedMedia", {features:[{name:"prefers-reduced-motion",value:"reduce"}]});
-  await call("Page.addScriptToEvaluateOnNewDocument", {source:`
+  await call("Page.addScriptToEvaluateOnNewDocument", {source: qaPrivateVaultSource + `
     window.__secretaryQA={starts:0,calls:0};
-    window.chengjing={platform:screen.width<600?'android':'win32',onShortcut:()=>()=>{},ai:{keyStatus:async()=>({configured:true}),openRouterChat:async()=>{window.__secretaryQA.calls++;throw new Error('Unapproved request')}}};
+    window.chengjing={secretaryVault:window.__qaPrivateVaultBridge,platform:screen.width<600?'android':'win32',onShortcut:()=>()=>{},ai:{keyStatus:async()=>({configured:true}),openRouterChat:async()=>{window.__secretaryQA.calls++;throw new Error('Unapproved request')}}};
     window.SpeechRecognition=class {static async available(){return 'available'};processLocally=false;start(){if(!this.processLocally)throw new Error('Cloud speech forbidden');window.__secretaryQA.starts++;setTimeout(()=>{this.onresult?.({results:[[{transcript:'Synthetic voice task'}]]});this.onend?.()},50)};abort(){}};
   `});
   const report=[];
@@ -18,29 +19,31 @@ try {
     await call("Page.navigate",{url:base}); await wait("document.querySelector('.workspace')");
     await evaluate("(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.setState({language:'en'});useAppStore.getState().setView('tasks')})()");
     await wait("document.querySelector('.secretary-panel textarea')"); await new Promise(resolve=>setTimeout(resolve,400));
+    await click(button("Unlock private storage")); await wait("!document.querySelector('.secretary-sensitive').disabled");
     await evaluate("Promise.all([import('/src/db.ts'),import('/src/lib/secretary.ts')]).then(()=>true)");
     await call("Network.enable");
     await call("Network.emulateNetworkConditions",{offline:true,latency:0,downloadThroughput:0,uploadThroughput:0});
     if(await evaluate("window.__secretaryQA.starts"))throw new Error("Mic started automatically");
     await fill(".secretary-panel textarea",`${noteTitle}\n<script>untrusted()</script>`);
     await evaluate(`(()=>{const e=${button("Save note")};e.click();e.click()})()`);
-    await wait("document.querySelector('.secretary-panel [role=status]')?.textContent==='Note saved'");
-    const notes=await evaluate(`(async()=>{const {db}=await import('/src/db.ts');return (await db.cards.toArray()).filter(c=>c.title===${JSON.stringify(noteTitle)})})()`);
-    if(notes.length!==1||notes[0].contentHtml.includes('<script>'))throw new Error("Duplicate or unsafe note");
+    await wait("document.querySelector('.secretary-panel [role=status]')?.textContent==='Private note saved'");
+    const notes=await evaluate(`(async()=>{const {listPrivateItems}=await import('/src/lib/secureSecretary.ts');return (await listPrivateItems()).filter(c=>c.title===${JSON.stringify(noteTitle)})})()`);
+    if(notes.length!==1)throw new Error("Duplicate private note");
+    if(!await evaluate(`(async()=>{const {db}=await import('/src/db.ts');return !JSON.stringify(await Promise.all([db.cards.toArray(),db.fragments.toArray(),db.tasks.toArray(),db.preferences.toArray()])).includes(${JSON.stringify(keyword)}) && !Object.values(localStorage).some(v=>v.includes(${JSON.stringify(keyword)}))})()`))throw new Error("Plaintext persistence leak");
     await click(button("On-device voice"));await wait("document.querySelector('.secretary-panel textarea').value.includes('Synthetic voice task')");
-    await click(button("Save task"));await wait("document.querySelector('.secretary-panel [role=status]')?.textContent==='Task saved'");
+    await click(button("Save task"));await wait("document.querySelector('.secretary-panel [role=status]')?.textContent==='Private task saved'");
     await fill(".secretary-panel textarea",reminderTitle);await fill(".secretary-panel input[type=datetime-local]","2020-10-08T09:00");
-    await fill(".secretary-panel > label input:not([type])","Asia/Taipei");
+    await fill(".secretary-sensitive > label input:not([type])","Asia/Taipei");
     for(const name of ["Calendar","Clock"])await click(`[...document.querySelectorAll('.secretary-panel fieldset label')].find(e=>e.textContent.includes(${JSON.stringify(name)})).querySelector('input')`);
     await click(button("Preview reminder proposal"));await wait("document.querySelector('.secretary-proposal')");
     const before=await evaluate(`(async()=>{const {listReminders}=await import('/src/lib/secretary.ts');return (await listReminders()).filter(o=>o.title===${JSON.stringify(reminderTitle)}).length})()`);
     if(before)throw new Error("Action happened before consent");
-    await evaluate(`(()=>{const e=${button("Confirm creation")};e.click();e.click()})()`);
+    await evaluate(`(()=>{const e=${button("Confirm overdue reminder and immediate catch-up")};e.click();e.click()})()`);
     await wait(`document.querySelector('.local-reminder-banner')?.textContent.includes(${JSON.stringify(keyword)})`);
     await click(`[...document.querySelectorAll('.local-reminder-banner div')].find(e=>e.textContent.includes(${JSON.stringify(keyword)})).querySelector('button')`);
     const article=`[...document.querySelectorAll('.secretary-operations article')].find(e=>e.textContent.includes(${JSON.stringify(keyword)}))`;
     const destination=type=>`[...(${article}).querySelectorAll('button')].find(e=>e.textContent.includes(${JSON.stringify(type)}))`;
-    const permission="[...document.querySelectorAll('.secretary-panel > label')].find(e=>e.textContent.includes('Simulate connector permission')).querySelector('input')";
+    const permission="[...document.querySelectorAll('.secretary-sensitive > label')].find(e=>e.textContent.includes('Simulate connector permission')).querySelector('input')";
     await click(destination("calendar-mock"));await wait(`(${article}).textContent.includes('mock-permission-revoked')`);
     await click(permission);await click(destination("calendar-mock"));await wait(`(${article}).textContent.includes('calendar-mock: mock-created')`);
     await click(permission);await click(destination("clock-mock"));await wait(`(${article}).textContent.includes('clock-mock: mock-permission-revoked')`);
@@ -54,11 +57,15 @@ try {
     await click(button("Simulate atomic reservation"));await wait("document.querySelector('.secretary-panel [role=status]')?.textContent.includes('MOCK reserved')");
     await screenshot(`${mode}.png`);if(await evaluate("document.documentElement.scrollWidth>innerWidth+1"))throw new Error("Horizontal overflow");
     await call("Network.emulateNetworkConditions",{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});
+    await click(button("Lock private storage")); await wait("document.querySelector('.secretary-sensitive').disabled && !document.querySelector('.secretary-operations').textContent");
     await call("Page.reload");await wait("document.querySelector('.workspace')");
+    await evaluate("(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.setState({language:'en'});useAppStore.getState().setView('tasks')})()"); await wait("document.querySelector('.secretary-sensitive')");
+    if(!await evaluate("document.querySelector('.secretary-sensitive').disabled"))throw new Error("Vault auto-unlocked on reload");
+    await click(button("Unlock private storage"));await wait("!document.querySelector('.secretary-sensitive').disabled");
     const persisted=await evaluate(`(async()=>{const {listReminders}=await import('/src/lib/secretary.ts');return (await listReminders()).filter(o=>o.title===${JSON.stringify(reminderTitle)})})()`);
     if(persisted.length!==1||persisted[0].status!=='done')throw new Error("Restart or confirmation deduplication failed");
     if(await evaluate("window.__secretaryQA.calls"))throw new Error("Unapproved cloud call");
-    report.push({mode,width,noteSaved:true,doubleClickDeduplicated:true,offlineLocalActions:true,localSpeechMock:true,confirmedLocalReminder:true,overdueAcknowledged:true,restartPersisted:true,partialSuccessPreserved:true,clockDateBlocked:true,selectedMockImport:true,atomicMockBudget:true});
+    report.push({mode,width,privateNoteSaved:true,noIndexedDBBody:true,encryptedFixturePersistence:true,lockClearsView:true,explicitUnlockAfterReload:true,doubleClickDeduplicated:true,offlineLocalActions:true,localSpeechMock:true,confirmedLocalReminder:true,overdueAcknowledged:true,restartPersisted:true,partialSuccessPreserved:true,clockDateBlocked:true,selectedMockImport:true,atomicMockBudget:true,nativeVaultBoundary:"MOCK (responsive layout only, not Android key support)"});
   }
   if(errors.length)throw new Error(errors.join('\n'));
   await fs.writeFile(path.join(output,'report.json'),JSON.stringify({report,errors,realCloudCalls:0,realMicCalls:0},null,2));console.log(JSON.stringify(report,null,2));
