@@ -76,7 +76,16 @@ export async function mutateReminderTask(id: string, patch: { done?: boolean; ti
     if (!item || item.kind !== "task") throw new Error("Private task missing");
     const operation = remindersIn(data).find(value => value.taskId === id);
     if (patch.title !== undefined) { if (!patch.title.trim() || patch.title.length > 2000) throw new Error("Invalid task title"); item.title = patch.title.trim(); item.plainText = item.title; if (operation) operation.title = item.title; }
-    if (patch.dueAt !== undefined) { if (!Number.isFinite(patch.dueAt)) throw new Error("Invalid task time"); item.dueAt = patch.dueAt; if (operation) { operation.nextDueAt = patch.dueAt; operation.wallTime = reminderDisplayTime(operation); operation.status = "scheduled"; operation.destinationsState.local = "scheduled"; } }
+    if (patch.dueAt !== undefined) {
+      if (!Number.isFinite(patch.dueAt)) throw new Error("Invalid task time");
+      const changed = item.dueAt !== patch.dueAt;
+      item.dueAt = patch.dueAt;
+      if (operation && changed) {
+        operation.nextDueAt = patch.dueAt; operation.wallTime = reminderDisplayTime(operation);
+        // Editing a task is not renewed consent to activate a cancelled reminder.
+        if (operation.status !== "cancelled") { operation.status = "scheduled"; operation.destinationsState.local = "scheduled"; }
+      }
+    }
     if (patch.done !== undefined) item.done = patch.done;
     if (operation && (item.done || patch.delete)) { operation.status = "cancelled"; operation.destinationsState.local = patch.delete ? "task-deleted" : "task-completed"; }
     if (patch.delete) delete data.entries[key]; else item.updatedAt = Date.now();

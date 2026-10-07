@@ -14,7 +14,8 @@ function PrivateTaskEditor({ item, operation, disabled, act }: { item: PrivateIt
     <button disabled={disabled} onClick={() => void act(async () => { await mutateReminderTask(item.id, { done: !item.done }); })}>{item.done ? "Reopen task (reminder stays cancelled)" : "Complete private task"}</button>
     <button disabled={disabled} onClick={() => void act(async () => { await mutateReminderTask(item.id, { delete: true }); })}>Delete private task</button>
     <details><summary>Edit private task</summary><label>Title<input value={title} onChange={event => setTitle(event.target.value)} /></label>{operation && <label>Date and time · {operation.timeZone}<input type="datetime-local" value={wall} onChange={event => setWall(event.target.value)} /></label>}
-      <button disabled={disabled} onClick={() => void act(async () => { let dueAt: number | undefined; if (operation) { const candidates = wallTimeCandidates(wall, operation.timeZone); if (candidates.length !== 1) throw new Error("Choose an unambiguous local time"); dueAt = candidates[0]; } await mutateReminderTask(item.id, { title, dueAt }); })}>Save private task changes</button>
+      <button disabled={disabled} onClick={() => void act(async () => { let dueAt: number | undefined; if (operation && wall !== reminderDisplayTime(operation)) { const candidates = wallTimeCandidates(wall, operation.timeZone); if (candidates.length !== 1) throw new Error("Choose an unambiguous local time"); dueAt = candidates[0]; } await mutateReminderTask(item.id, { ...(title !== item.title ? { title } : {}), ...(dueAt !== undefined ? { dueAt } : {}) }); })}>Save private task changes</button>
+      {operation?.status === "cancelled" && <p>Reminder stays cancelled after edits. Create and confirm a fresh reminder preview to schedule again.</p>}
     </details>
   </article>;
 }

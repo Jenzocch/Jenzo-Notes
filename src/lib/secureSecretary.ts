@@ -12,6 +12,7 @@ export interface SecretaryVaultBridge {
   onState?(callback: (status: VaultStatus) => void): () => void;
 }
 let epoch = 0;
+export const secureVaultEpoch = () => epoch;
 const bridge = () => { const value = window.chengjing?.secretaryVault; if (!value) throw new Error("Secure secretary storage unsupported; sensitive persistence is disabled"); return value; };
 export const vaultChanged = () => window.dispatchEvent(new Event("chengjing:secure-vault-changed"));
 export async function secureVaultStatus(): Promise<VaultStatus> { return window.chengjing?.secretaryVault ? bridge().status() : { state: "unsupported", protection: "none", formatVersion: 2 }; }

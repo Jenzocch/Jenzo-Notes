@@ -10,6 +10,16 @@ beforeEach(async () => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTim
 afterEach(async () => { await lockSecureVault(); window.chengjing = undefined; vi.useRealTimers(); await db.preferences.clear(); await db.tasks.clear(); await db.fragments.clear(); }, 30000);
 const plan = (repeat: "once" | "daily" | "weekly" = "once") => parseReminder("synthetic reminder", "2026-10-08T09:00", "Asia/Taipei", repeat, ["local", "calendar-mock", "clock-mock"]);
 describe("local reminder proposals", () => {
+  it("keeps cancellation on title-only UI payloads, reopening and changed dates without new reminder consent", async () => {
+    const proposal = plan(); const operation = await confirmReminder(proposal);
+    await cancelLocalReminder(proposal.id);
+    await mutateReminderTask(operation.taskId, { title: "TITLE-ONLY-EDIT", dueAt: proposal.instant });
+    expect((await listReminders())[0]).toMatchObject({ status: "cancelled", title: "TITLE-ONLY-EDIT" });
+    await mutateReminderTask(operation.taskId, { done: false, dueAt: proposal.instant });
+    await mutateReminderTask(operation.taskId, { dueAt: proposal.instant + 86400000 });
+    expect((await listReminders())[0].status).toBe("cancelled");
+    expect(await checkDueReminders(proposal.instant + 2 * 86400000)).toEqual([]);
+  });
   it("uses the requested IANA zone and rejects invalid dates, gaps and ambiguous DST times", () => {
     expect(wallTimeCandidates("2026-10-08T09:00", "Asia/Taipei")).toEqual([Date.parse("2026-10-08T01:00Z")]);
     expect(wallTimeCandidates("2026-03-08T02:30", "America/New_York")).toEqual([]);

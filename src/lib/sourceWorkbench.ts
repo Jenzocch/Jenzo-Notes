@@ -1,7 +1,7 @@
 import { db } from "../db";
 import type { AppLanguage } from "../types";
 import { isMaterializedCard } from "./journalVisibility";
-import { listPrivateItems, secureVaultStatus } from "./secureSecretary";
+import { listPrivateItems, secureVaultEpoch, secureVaultStatus } from "./secureSecretary";
 
 export interface NoteSource {
   key: string;
@@ -68,8 +68,9 @@ export async function searchNoteSources(query: string, _language: AppLanguage, l
 }
 
 export async function sourcesStillCurrent(sources: NoteSource[]) {
+  const epoch = secureVaultEpoch();
   const privateItems = sources.some(source => source.type === "private") ? await listPrivateItems() : [];
-  return db.transaction("r", db.cards, db.fragments, async () => {
+  const valid = await db.transaction("r", db.cards, db.fragments, async () => {
     for (const source of sources) {
       const record = source.type === "private" ? privateItems.find(item => item.id === source.id) : source.type === "card" ? await db.cards.get(source.id) : await db.fragments.get(source.id);
       if (!record || record.updatedAt !== source.updatedAt) return false;
@@ -79,6 +80,7 @@ export async function sourcesStillCurrent(sources: NoteSource[]) {
     }
     return true;
   });
+  return valid && epoch === secureVaultEpoch();
 }
 
 export function sourceContext(sources: NoteSource[]) {

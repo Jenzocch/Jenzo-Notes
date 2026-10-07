@@ -1,6 +1,7 @@
 // Standalone Electron process: no app main, no browser, no real profile/credentials.
 const { app, safeStorage, BrowserWindow, ipcMain } = require("electron");
 const fs = require("node:fs/promises");
+const fsSync = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const assert = require("node:assert/strict");
@@ -13,9 +14,10 @@ app.on("window-all-closed", () => {}); // Wait for the report; no hidden auto-qu
 const deadline = setTimeout(() => { console.error("Synthetic OS vault runtime timed out"); app.exit(1); }, 20000);
 (async () => {
   const existing = process.argv.find(value => value.startsWith("--reopen-synthetic="))?.slice("--reopen-synthetic=".length);
-  const directory = existing ? path.resolve(existing) : await fs.mkdtemp(path.join(os.tmpdir(), "jenzo-os-vault-synthetic-"));
-  if (existing) { assert.equal(path.dirname(directory).toLowerCase(), path.resolve(os.tmpdir()).toLowerCase()); assert.match(path.basename(directory), /^jenzo-os-vault-synthetic-[\w-]+$/); assert.equal(await fs.readFile(path.join(directory, "synthetic-marker.txt"), "utf8"), "JENZO_SYNTHETIC_VAULT_QA_ONLY"); }
-  else await fs.writeFile(path.join(directory, "synthetic-marker.txt"), "JENZO_SYNTHETIC_VAULT_QA_ONLY");
+  // Establish the isolated OS-key context synchronously before Electron can be ready.
+  const directory = existing ? path.resolve(existing) : fsSync.mkdtempSync(path.join(os.tmpdir(), "jenzo-os-vault-synthetic-"));
+  if (existing) { assert.equal(path.dirname(directory).toLowerCase(), path.resolve(os.tmpdir()).toLowerCase()); assert.match(path.basename(directory), /^jenzo-os-vault-synthetic-[\w-]+$/); assert.equal(fsSync.readFileSync(path.join(directory, "synthetic-marker.txt"), "utf8"), "JENZO_SYNTHETIC_VAULT_QA_ONLY"); }
+  else fsSync.writeFileSync(path.join(directory, "synthetic-marker.txt"), "JENZO_SYNTHETIC_VAULT_QA_ONLY");
   app.setPath("userData", directory);
   app.setAppLogsPath(path.join(directory, "logs"));
   await app.whenReady();
