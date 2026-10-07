@@ -1,13 +1,21 @@
 import { spawnSync } from "node:child_process";
-import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { inspectAndroidToolchain, stageAndroidAssets, windowsCommand } from "./android-toolchain.mjs";
 
-function run(command,args,env={}) { const result=spawnSync(command,args,{stdio:"inherit",env:{...process.env,...env}});if(result.status!==0)process.exit(result.status||1); }
-run("npm",["run","build"]);
-const assets=path.resolve("android/app/src/main/assets/public");
-await fs.mkdir(assets,{recursive:true});
-run("rsync",["-a","--delete","dist/",assets+"/"]);
-run("./android/gradlew",["-p","android",":app:assembleDebug","--console=plain"],{
-  JAVA_HOME: process.env.JAVA_HOME || "/Applications/Android Studio.app/Contents/jbr/Contents/Home",
-  ANDROID_HOME: process.env.ANDROID_HOME || "/Users/coyoter/Library/Android/sdk",
-});
+const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const report = inspectAndroidToolchain();
+console.log(JSON.stringify(report, null, 2));
+if (!report.ready) {
+  console.error("Android native build blocked before mutation. No SDK/JDK/Gradle download, device install, permission grant or signing setup attempted.");
+  process.exit(2);
+}
+if (process.argv.includes("--check")) process.exit(0);
+function run(command, args, env = process.env) {
+  const result = spawnSync(process.platform === "win32" ? windowsCommand(command) : command, args, { cwd: repository, stdio: "inherit", env, windowsHide: true, shell: process.platform === "win32" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exit(result.status || 1);
+}
+run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"]);
+stageAndroidAssets(repository);
+run(report.gradle, ["-p", "android", ":app:assembleDebug", "--offline", "--console=plain", "-Pandroid.builder.sdkDownload=false"], { ...process.env, ANDROID_HOME: report.sdk, ANDROID_SDK_ROOT: report.sdk });
