@@ -1,5 +1,7 @@
 # Local secretary MVP: implementation and acceptance
 
+Historical report for the initial PR2 implementation through `ebf3ff9`. Current persistence, CI and review-fix behavior supersedes this report: see [PRIVATE_SECRETARY_SECURITY_QA.md](PRIVATE_SECRETARY_SECURITY_QA.md).
+
 ## Baseline and scope
 
 This independent branch starts at `b1c9e88`, the main merge of phase-one source workbench PR #1 (`b21009e`). PR #1 was already merged when this work began; this task did not merge it. No open competing PR or public Claude review was found at inspection. No claim of a Claude review is made.
