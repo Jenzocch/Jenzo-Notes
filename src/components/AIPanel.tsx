@@ -28,6 +28,7 @@ import { formatAiActionResult, getAiActionCopy } from "../lib/aiActionCopy";
 import type { AIMessage } from "../lib/modelTypes";
 import { AIMarkdown } from "./AIMarkdown";
 import { renderSafeMarkdown } from "../lib/safeMarkdown";
+import { SourceWorkbench } from "./SourceWorkbench";
 
 export function AIPanel() {
   const { language, t } = useI18n();
@@ -271,6 +272,7 @@ export function AIPanel() {
       </div>
 
       <div className="ai-messages" ref={scrollRef}>
+        <SourceWorkbench />
         {conversationReady && messages.length === 0 && !loading && (
           <div className="ai-empty">
             <div className="ai-orb"><Sparkles size={22} /><i /><i /></div>

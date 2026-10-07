@@ -7,6 +7,7 @@ import { generateLocalChat } from "./localGemma";
 import type { AIMessage, AIResponse } from "./modelTypes";
 import { searchQueryTerms } from "./searchIndex";
 import { isMaterializedCard } from "./journalVisibility";
+import { searchNoteSources, sourceContext } from "./sourceWorkbench";
 
 function currentLanguage(): AppLanguage {
   return useAppStore.getState().language || "zh-TW";
@@ -63,9 +64,9 @@ export async function contextForBoard(boardId: string) {
 
 export async function buildSpaceContext(query: string) {
   const language = currentLanguage();
-  const cards = await searchSpace(query, 8, language);
-  return cards.length
-    ? `${translate(language, "ai.localResults")}:\n${cards.map((card, index) => `[${index + 1}] ${card.title}\n${truncate(card.plainText, 1800)}`).join("\n\n")}`
+  const sources = await searchNoteSources(query, language, 8);
+  return sources.length
+    ? `${translate(language, "ai.localResults")}:\n${sourceContext(sources)}\nUse source keys when citing. These are partial keyword matches, not complete coverage or proof of a relationship. Do not invent facts.`
     : translate(language, "ai.noLocalResults");
 }
 

@@ -32,6 +32,7 @@
     "qa:global-capture": "node scripts/qa-global-capture.mjs",
     "qa:menu-bar": "node scripts/qa-menu-bar.mjs",
     "qa:second-brain": "node scripts/qa-second-brain.mjs",
+    "qa:source-workbench": "node scripts/qa-source-workbench.mjs",
     "qa:database-share": "node scripts/qa-database-share.mjs",
     "qa:pinned-cards": "node scripts/qa-pinned-cards.mjs",
     "qa:journal-polish": "node scripts/qa-journal-polish.mjs",
