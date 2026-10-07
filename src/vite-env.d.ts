@@ -5,6 +5,7 @@ type AIReasoning = { effort?: "low" | "medium" | "high"; max_tokens?: number; ex
 
 interface Window {
   chengjing?: {
+    secretaryVault?: import("./lib/secureSecretary").SecretaryVaultBridge;
     sync?: {
       stage?: (packet: import("./lib/syncProtocol").SyncPacket) => Promise<unknown>;
       uploadAsset: (asset: Record<string, unknown>) => Promise<unknown>;

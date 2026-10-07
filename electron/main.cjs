@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, ClipboardItem, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, screen, shell, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, ClipboardItem, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, powerMonitor, protocol, safeStorage, screen, shell, Tray } = require("electron");
 const { createHash, randomUUID } = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { createReadStream } = require("node:fs");
@@ -9,6 +9,8 @@ const { cleanupIncrementalAssets, createAutoBackup, isOwnedBackupFilename, norma
 const { createGoogleDriveBackupService } = require("./google-drive-backup.cjs");
 const { clientId: googleOAuthClientId, clientSecret: googleOAuthClientSecret } = require("./google-oauth-config.cjs");
 const { clearSecret, readSecret, secretStatus, writeSecret } = require("./key-vault.cjs");
+const { createSecretaryVault, createWindowsKeyAdapter } = require("./secretary-vault.cjs");
+const { trustedAppUrl, registerSecretaryVaultIPC } = require("./secretary-ipc.cjs");
 const { buildApplicationMenuTemplate, shouldUseUpdateMenuIcon } = require("./menu-template.cjs");
 const { parseMacHotkey } = require("./mac-hotkey.cjs");
 const { isUpdateCandidateStale, parseLatestRelease, parseLatestReleaseFeed } = require("./update-service.cjs");
@@ -22,6 +24,17 @@ const CLOUDFLARE_UPDATE_INDEX_URL = "https://chengjing-update-index.coyoter.work
 const LEGACY_KEY_FILE = "openrouter-key.bin";
 const CLIPBOARD_MIME = "web application/x.chengjing-clipboard";
 let mainWindow = null;
+let privateSecretaryVault = null;
+function secretaryVault() {
+  if (!privateSecretaryVault) privateSecretaryVault = createSecretaryVault(path.join(app.getPath("userData"), "private-secretary-v2"), createWindowsKeyAdapter(safeStorage));
+  return privateSecretaryVault;
+}
+async function lockSecretaryVault() {
+  if (!privateSecretaryVault) return;
+  const status = await privateSecretaryVault.lock();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("secretary-vault:state", status);
+}
+registerSecretaryVaultIPC(ipcMain, () => mainWindow, secretaryVault, () => isDev ? "http://127.0.0.1:5173/" : pathToFileURL(path.join(__dirname, "../dist/index.html")).href);
 let quickCaptureWindow = null;
 let quickCapturePresented = false;
 let nativeQuickCaptureReady = false;
@@ -968,11 +981,11 @@ async function createWindow({ show = !isSmoke } = {}) {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: "deny" };
   });
-  mainWindow.webContents.on("did-start-loading", () => { mcpRendererReady = false; });
+  mainWindow.webContents.on("did-start-loading", () => { mcpRendererReady = false; void lockSecretaryVault(); });
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    const allowedDev = isDev && url.startsWith("http://127.0.0.1:5173");
-    const allowedFile = !isDev && url.startsWith("file:");
+    const allowedDev = isDev && trustedAppUrl(url, "http://127.0.0.1:5173/");
+    const allowedFile = !isDev && trustedAppUrl(url, pathToFileURL(path.join(__dirname, "../dist/index.html")).href);
     if (!allowedDev && !allowedFile) {
       event.preventDefault();
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
@@ -1018,6 +1031,7 @@ async function createWindow({ show = !isSmoke } = {}) {
 
   mainWindow.once("ready-to-show", () => { if (show && !isSmoke) mainWindow.show(); });
   mainWindow.on("closed", () => {
+    void lockSecretaryVault();
     mcpRendererReady = false;
     for (const request of mcpWorkspaceRequests.values()) request.reject(new Error("mcp-renderer-closed"));
     mcpWorkspaceRequests.clear();
@@ -1449,6 +1463,7 @@ ipcMain.handle("ai:list-models", async () => {
 });
 
 ipcMain.handle("ai:openrouter-chat", async (_event, request) => {
+  require("./cloud-budget.cjs").requireCloudBudgetAuthorization();
   const smokeMessages = Array.isArray(request?.messages) ? request.messages : [];
   if (process.env.CHENGJING_SMOKE_AI_MARKDOWN === "1" && smokeMessages.some((item) => String(item?.content || "").includes("__CHENGJING_MARKDOWN_SMOKE__"))) {
     return { text: "### 封裝 AI 回答\n\n1. **核心重點**\n   - 第一項\n   - 第二項\n\n---\n\n> 仍需回到來源確認。\n\n`KPI`<script>window.bad=true</script><img src=\"https://tracker.example/pixel\">", model: "smoke/markdown", usage: null, finishReason: "stop" };
@@ -1491,6 +1506,7 @@ ipcMain.handle("ai:provider-remove", async (_event, id) => {
 });
 
 ipcMain.handle("ai:provider-test", async (_event, id) => {
+  require("./cloud-budget.cjs").requireCloudBudgetAuthorization();
   try {
     const profile = await providerSettingsApi().providerProfileWithSecret(app.getPath("userData"), String(id || ""));
     return await providerClientApi().testProvider((url, options) => net.fetch(url, options), profile);
@@ -1505,6 +1521,7 @@ ipcMain.handle("ai:provider-models", async (_event, id) => {
 });
 
 ipcMain.handle("ai:provider-chat", async (_event, request = {}) => {
+  require("./cloud-budget.cjs").requireCloudBudgetAuthorization();
   try {
     const profile = await providerSettingsApi().providerProfileWithSecret(app.getPath("userData"), String(request.profileId || ""));
     return await providerClientApi().providerChat((url, options) => net.fetch(url, options), profile, request);
@@ -1602,6 +1619,7 @@ ipcMain.handle("attachment:restore-from-backup", async (_event, request = {}) =>
 });
 
 app.whenReady().then(async () => {
+  powerMonitor.on("lock-screen", () => { void lockSecretaryVault(); });
   if (!hasSingleInstanceLock) return;
   if (process.platform === "win32") app.setAppUserModelId("tw.techtarian.chengjing");
   protocol.handle("chengjing-attachment", async (request) => {

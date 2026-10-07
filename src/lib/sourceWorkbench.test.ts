@@ -2,7 +2,9 @@ import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it } from "vitest";
 import { db } from "../db";
 import type { CardRecord } from "../types";
-import { excerptDocument, matchingExcerpt, parseSourcedDocument, searchNoteSources, sourceAppendix, sourcesStillCurrent, type NoteSource } from "./sourceWorkbench";
+import { excerptDocument, matchingExcerpt, normalizedSourceUrl, parseSourcedDocument, safeDocumentExport, searchNoteSources, sourceAppendix, sourcesStillCurrent, type NoteSource } from "./sourceWorkbench";
+import { marked } from "marked";
+import { renderSafeMarkdown } from "./safeMarkdown";
 
 const card = (id: string, text: string, updatedAt = 1): CardRecord => ({ id, title: id, plainText: text, contentHtml: "", kind: "note", state: "active", createdAt: updatedAt, updatedAt, tagIds: [], favorite: false, color: "slate", attachmentIds: [], properties: {} });
 afterEach(async () => { await db.cards.clear(); await db.fragments.clear(); }, 30000);
@@ -44,9 +46,10 @@ describe("document evidence", () => {
   const response = (key = source.key, quote = "We plan to sail next year.") => JSON.stringify({ title: "Planning brief", sections: [{ heading: "Evidence", text: "A plan is recorded; timing needs confirmation.", evidence: [{ key, quote }] }] });
   it("accepts exact quotes with source numbers and retains source URL/id/date in exports", () => {
     const result = parseSourcedDocument(response(), [source]);
-    expect(result.text).toContain("> We plan to sail next year.\n> [1]");
+    expect(renderSafeMarkdown(result.text)).toContain("We plan to sail next year.");
+    expect(result.text).toContain("> [1]");
     expect(sourceAppendix([source], "en")).toContain("https://example.com/source");
-    expect(sourceAppendix([source], "en")).toContain("ID: card:old");
+    expect(renderSafeMarkdown(sourceAppendix([source], "en"))).toContain("card:old");
     expect(excerptDocument("Planning brief", [source], "en")).toContain("have not been inferred");
   });
   it("rejects invented keys, paraphrases presented as quotes, missing evidence and malformed output", () => {
@@ -54,5 +57,23 @@ describe("document evidence", () => {
     expect(() => parseSourcedDocument(response(source.key, "The sailing date is confirmed."), [source])).toThrow();
     expect(() => parseSourcedDocument('{"title":"x","sections":[{"heading":"x","text":"unsupported","evidence":[]}]}', [source])).toThrow();
     expect(() => parseSourcedDocument("not JSON", [source])).toThrow();
+  });
+  it("renders quoted Markdown and HTML as literal source text, not links or formatting", () => {
+    const literal = { ...source, excerpt: "**untrusted emphasis** [click](https://example.com) <script>attack()</script>" };
+    const raw = JSON.stringify({ title: "Quote", sections: [{ heading: "Evidence", text: "Review the literal source.", evidence: [{ key: literal.key, quote: literal.excerpt }] }] });
+    const html = renderSafeMarkdown(parseSourcedDocument(raw, [literal]).text);
+    expect(html).not.toContain("<a "); expect(html).not.toContain("<strong>"); expect(html).not.toContain("<script>");
+    expect(html).toContain("**untrusted emphasis**");
+  });
+  it("exports generated/edited HTML, image Markdown, reference images and fence attacks as inert text", () => {
+    const malicious = { ...source, sourceUrl: 'https://example.invalid/\n\n<img src="https://tracker.invalid/private">' };
+    const raw = JSON.stringify({ title: "<script>title()</script>", sections: [{ heading: '<img src="https://tracker.invalid/h">', text: '<script>run()</script> ![tracker](https://tracker.invalid)\n![ref][r]\n[r]: https://tracker.invalid', evidence: [{ key: source.key, quote: "We plan to sail next year." }] }] });
+    const text = parseSourcedDocument(raw, [malicious]).text + sourceAppendix([malicious], "en") + '\n~~~\n<img src="https://tracker.invalid/edited">\n~~~~~';
+    const exported = safeDocumentExport(text); const html = marked.parse(exported) as string;
+    expect(html).not.toMatch(/<(img|script|iframe|a|video|audio)\b/i);
+    expect(html).toContain("We plan to sail next year"); expect(exported).toContain("card:old"); expect(exported).toContain("tracker");
+    expect(normalizedSourceUrl(malicious.sourceUrl)).toBeNull();
+    expect(normalizedSourceUrl("https://user:password@example.com/")).toBeNull(); expect(normalizedSourceUrl("javascript:alert(1)")).toBeNull();
+    expect(normalizedSourceUrl("https://EXAMPLE.com/a?b=1")).toBe("https://example.com/a?b=1");
   });
 });

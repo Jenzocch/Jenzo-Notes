@@ -12,6 +12,7 @@ import { getTaskEnhancementCopy } from "../lib/taskEnhancementCopy";
 import { groupTasksByTimeline, localDateKey, timestampForLocalDateKey, type TaskDateGroup } from "../lib/taskTimeline";
 import type { TaskRecord } from "../types";
 import { getTaskHierarchyCopy } from "../lib/taskHierarchyCopy";
+import { SecretaryPanel } from "../components/SecretaryPanel";
 
 export function TasksView() {
   const [value, setValue] = useState(() => isAndroid() ? localStorage.getItem("chengjing-task-draft") || "" : "");
@@ -153,6 +154,7 @@ export function TasksView() {
 
   return (
     <div className="page-scroll standard-page narrow-page tasks-page">
+      <SecretaryPanel />
       <header className="page-intro"><div><span>{t("tasks.eyebrow")}</span><h2>{t("tasks.remaining", { count: activeCount })}</h2><p>{t("tasks.description")}</p></div></header>
 
       <form className="task-add" onSubmit={addTask}>

@@ -6,6 +6,7 @@ import { db } from "../db";
 import { useI18n } from "../hooks/useI18n";
 import { relativeTime } from "../lib/utils";
 import { showContextMenuFromButton } from "../lib/contextMenu";
+import { useAppStore } from "../store";
 
 export function MobileCapture() {
   const { language } = useI18n(); const zh=language.startsWith("zh");
@@ -20,6 +21,7 @@ export function MobileCapture() {
   }
   return <section className="mobile-capture-page">
     <header className="mobile-capture-intro"><span>{new Intl.DateTimeFormat(language,{month:"long",day:"numeric",weekday:"short"}).format(new Date())}</span><h1>{zh?"先記下，慢慢想。":"A thought worth keeping."}</h1><p>{zh?"零散的念頭，也有值得留下的地方。":"A quiet place for what is on your mind."}</p></header>
+    <button type="button" className="secondary-button" onClick={() => useAppStore.getState().setView("tasks")}>{zh ? "隨身秘書 · 語音與提醒" : "Local secretary · Voice and reminders"}</button>
     <div className="mobile-capture-composer">
       <div className="capture-kind-switch" role="tablist" aria-label={zh?"記錄類型":"Capture type"}>{(["fragment","task"] as const).map(value=><button key={value} disabled={saving} role="tab" aria-selected={kind===value} onClick={()=>{setKind(value);setText(localStorage.getItem(`chengjing-mobile-draft-${value}`)||"");input.current?.focus()}}>{kind===value&&<motion.i layoutId="capture-kind" transition={{type:"spring",stiffness:440,damping:35}}/>}{value==="fragment"?<Feather size={16}/>:<ListTodo size={16}/>}<span>{value==="fragment"?(zh?"隻言片語":"Thought"):(zh?"待辦事項":"Task")}</span></button>)}</div>
       <textarea ref={input} value={text} onChange={event=>{setText(event.target.value);localStorage.setItem(`chengjing-mobile-draft-${kind}`,event.target.value)}} placeholder={kind==="fragment"?(zh?"此刻，腦中閃過什麼？":"What is on your mind?"):(zh?"接下來，想完成什麼？":"What would you like to do?")} aria-label={zh?"快速記錄":"Quick capture"} rows={3} onKeyDown={event=>{if((event.metaKey||event.ctrlKey)&&event.key==="Enter"&&!event.nativeEvent.isComposing){event.preventDefault();void capture()}}}/>

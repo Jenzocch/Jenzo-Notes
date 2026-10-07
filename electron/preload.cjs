@@ -1,6 +1,19 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("chengjing", {
+  secretaryVault: {
+    status: () => ipcRenderer.invoke("secretary-vault:status"),
+    unlock: () => ipcRenderer.invoke("secretary-vault:unlock"),
+    lock: () => ipcRenderer.invoke("secretary-vault:lock"),
+    read: () => ipcRenderer.invoke("secretary-vault:read"),
+    commit: request => ipcRenderer.invoke("secretary-vault:commit", request),
+    backup: () => ipcRenderer.invoke("secretary-vault:backup"),
+    previewRestore: data => ipcRenderer.invoke("secretary-vault:preview-restore", data),
+    cancelRestore: token => ipcRenderer.invoke("secretary-vault:cancel-restore", token),
+    confirmRestore: token => ipcRenderer.invoke("secretary-vault:confirm-restore", token),
+    previewRollback: id => ipcRenderer.invoke("secretary-vault:preview-rollback", id),
+    onState: callback => { const listener = (_event, value) => callback(value); ipcRenderer.on("secretary-vault:state", listener); return () => ipcRenderer.removeListener("secretary-vault:state", listener); },
+  },
   app: {
     getPreferredLanguage: () => ipcRenderer.invoke("app:get-preferred-language"),
     setLanguage: (language) => ipcRenderer.invoke("app:set-language", language),
