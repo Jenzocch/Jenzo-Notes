@@ -16,7 +16,8 @@ try {
   await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
   await call('Page.navigate',{url:base});await wait(`document.querySelector('.app-shell') || document.querySelector('.workspace')`);
   await evaluate(`(async()=>{const {db}=await import('/src/db.ts');await db.cards.where('kind').equals('image').delete();await db.attachments.clear();await db.brainEdges.clear();const {useAppStore}=await import('/src/store.ts');useAppStore.setState({language:'zh-TW'});})()`);
-  await click(`[...document.querySelectorAll('button')].find(el=>el.textContent==='新增卡片')`);
+  if(width<600){await call('Input.dispatchKeyEvent',{type:'keyDown',key:'n',code:'KeyN',modifiers:2});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'n',code:'KeyN',modifiers:2});}
+  else await click(`[...document.querySelectorAll('button')].find(el=>el.textContent==='新增卡片')`);
   await wait(`document.querySelector('.create-card-fields')`);
   await click(`[...document.querySelectorAll('.create-card-fields button')].find(el=>el.textContent.includes('+ idea'))`);
   await wait(`document.querySelector('.image-idea-capture')`);
