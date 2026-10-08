@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import {base,output,ws,errors,call,evaluate,wait,click,fill,screenshot} from './qa-browser.mjs';
+import {base,output,ws,errors,call,evaluate,wait,click as rawClick,fill,screenshot} from './qa-browser.mjs';
 import {qaPrivateVaultSource} from './qa-private-vault.mjs';
 const report=[];const timeout=setTimeout(()=>{console.error('Image entry QA timeout');process.exit(1)},120000);
+async function click(expression){await wait(`(${expression}) && !(${expression}).matches(':disabled')`);await evaluate(`(()=>{(${expression}).scrollIntoView({block:'center'});return true;})()`);await new Promise(resolve=>setTimeout(resolve,150));return rawClick(expression);}
 try {
  await call('Runtime.enable');await call('Page.enable');await call('Page.bringToFront');await call('DOM.enable');
  await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
@@ -14,7 +15,8 @@ try {
  for(const [name,width,height] of [['desktop',1440,1000],['mobile-layout',390,844]]){
   await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
   await call('Page.navigate',{url:base});await wait(`document.querySelector('.app-shell') || document.querySelector('.workspace')`);
-  await evaluate(`(async()=>{const {db}=await import('/src/db.ts');await db.cards.where('kind').equals('image').delete();await db.attachments.clear();await db.brainEdges.clear();const {useAppStore}=await import('/src/store.ts');useAppStore.setState({language:'zh-TW'});useAppStore.getState().setCreateCardOpen(true);})()`);
+  await evaluate(`(async()=>{const {db}=await import('/src/db.ts');await db.cards.where('kind').equals('image').delete();await db.attachments.clear();await db.brainEdges.clear();const {useAppStore}=await import('/src/store.ts');useAppStore.setState({language:'zh-TW'});})()`);
+  await click(`[...document.querySelectorAll('button')].find(el=>el.textContent==='新增卡片')`);
   await wait(`document.querySelector('.create-card-fields')`);
   await click(`[...document.querySelectorAll('.create-card-fields button')].find(el=>el.textContent.includes('+ idea'))`);
   await wait(`document.querySelector('.image-idea-capture')`);

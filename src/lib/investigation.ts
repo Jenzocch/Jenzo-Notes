@@ -100,16 +100,17 @@ export async function compileInvestigation(proposal: InvestigationProposal, sele
   return artifact;
 }
 
-export function localEvidenceOutline(sources: EvidenceSource[], question = ""): InvestigationProposal {
+export function localEvidenceOutline(sources: EvidenceSource[], question = "", language: AppLanguage = "en"): InvestigationProposal {
+  const zh = language.startsWith("zh");
   const citation = (source: EvidenceSource) => ({ key: source.key, quote: matchingExcerpt(source.text, queryTerms(question || investigationIdentifiers(source.text).join(" "))) });
   const findings: InvestigationProposal["findings"] = sources.map((source, index) => ({ id: `record-${index}`, kind: "fact", text: "", evidence: [citation(source)] }));
   const relations: InvestigationProposal["relations"] = [];
   for (let left = 0; left < sources.length; left++) for (let right = left + 1; right < sources.length && relations.length < 8; right++) {
     const shared = investigationIdentifiers(sources[left].text).filter(id => investigationIdentifiers(sources[right].text).includes(id));
-    if (shared.length) relations.push({ kind: "association", reason: `Shared identifier ${shared.join(" / ")}. This is an association to review, not a proven cause.`, evidence: [citation(sources[left]), citation(sources[right])] });
+    if (shared.length) relations.push({ kind: "association", reason: zh ? `共同識別碼 ${shared.join(" / ")}。這是待確認的關聯，不代表因果已證實。` : `Shared identifier ${shared.join(" / ")}. This is an association to review, not a proven cause.`, evidence: [citation(sources[left]), citation(sources[right])] });
   }
-  findings.push({ id: "causal-gap", kind: "gap", text: "The selected records do not establish a cause. Verify methods, versions and missing records before deciding.", evidence: [] });
-  return { findings, relations, actions: [{ title: "Review evidence and missing records", rationale: "Resolve the stated evidence gap before drawing a causal conclusion.", findingIds: ["causal-gap"] }] };
+  findings.push({ id: "causal-gap", kind: "gap", text: zh ? "所選原文不足以證明原因。請確認方法、版本與缺少的紀錄，再作決定。原文未翻譯，不能把辨識或解讀當作事實認證。" : "The selected records do not establish a cause. Verify methods, versions and missing records before deciding.", evidence: [] });
+  return { findings, relations, actions: [{ title: zh ? "核對原文與缺少的紀錄" : "Review evidence and missing records", rationale: zh ? "先補足證據缺口，再判斷原因；保留原文的人名、產品名、數字與單位。" : "Resolve the stated evidence gap before drawing a causal conclusion.", findingIds: ["causal-gap"] }] };
 }
 
 /** Deterministic synthetic provider fixture, only available to the isolated case. */
@@ -174,9 +175,12 @@ export async function assertInvestigationCurrent(artifact: Investigation, reposi
 }
 export const investigationPrivate = (artifact: Investigation) => artifact.inputSources.some(source => source.privacy === "private");
 export const findingLabels = { fact: "Recorded facts (original quotations)", inference: "Inference — unverified", conflict: "Apparent conflict — verify context", gap: "Missing evidence — selected scope only" };
-export function renderInvestigation(artifact: Investigation) {
+export function renderInvestigation(artifact: Investigation, language: AppLanguage = "en") {
+  const zh = language.startsWith("zh");
+  const labels = zh ? { fact: "原文紀錄（引用不等於事實認證）", inference: "推測（未證實）", conflict: "可能衝突（需核對情境）", gap: "所選範圍缺少的證據" } : findingLabels;
+  const t = (chinese: string, english: string) => zh ? chinese : english;
   const quote = (ref: EvidenceRef) => `\n> ${ref.quote.replace(/\n/g, "\n> ")}\nSource: ${ref.key}; scope: ${ref.scope}; revision: ${ref.updatedAt}; span: ${ref.start}-${ref.end}; SHA256: ${ref.fingerprint}\n`;
-  return `# ${artifact.question}\n\nScope: ${artifact.scope}. Quotations can be verified; interpretations are not established facts.\n` + artifact.findings.map(finding => `\n## ${findingLabels[finding.kind]}\n${finding.kind === "fact" ? "" : finding.text}\n${finding.evidence.map(quote).join("\n")}`).join("\n") + "\n## Relationship proposals\n" + artifact.relations.map(relation => `${relation.decision}: ${relation.reason}\n${relation.evidence.map(quote).join("\n")}`).join("\n") + "\n## Improvement / task proposals\n" + artifact.actions.map(action => `- ${action.title}: ${action.rationale} [findings: ${action.findingIds.join(", ")}]`).join("\n") + `\n\n## User notes (not revalidated conclusions)\n${artifact.notes}\n\n## All input sources / retained privacy\n` + artifact.inputSources.map(source => `${source.key}: ${source.privacy}, ${source.fingerprint}`).join("\n");
+  return `# ${artifact.question}\n\n${t("範圍", "Scope")}: ${artifact.scope}. ${t("原文保留，沒有自動翻譯；引用可核對，解讀仍須確認。", "Quotations can be verified; interpretations are not established facts.")}\n` + artifact.findings.map(finding => `\n## ${labels[finding.kind]}\n${finding.kind === "fact" ? "" : finding.text}\n${finding.evidence.map(quote).join("\n")}`).join("\n") + `\n## ${t("關聯提案（需人工確認）", "Relationship proposals")}\n` + artifact.relations.map(relation => `${relation.decision}: ${relation.reason}\n${relation.evidence.map(quote).join("\n")}`).join("\n") + `\n## ${t("改善與待辦提案", "Improvement / task proposals")}\n` + artifact.actions.map(action => `- ${action.title}: ${action.rationale} [findings: ${action.findingIds.join(", ")}]`).join("\n") + `\n\n## ${t("使用者註記（未重新驗證的結論）", "User notes (not revalidated conclusions)")}\n${artifact.notes}\n\n## ${t("全部輸入來源與保留的私密標記", "All input sources / retained privacy")}\n` + artifact.inputSources.map(source => `${source.key}: ${source.privacy}, ${source.fingerprint}`).join("\n");
 }
 export async function saveInvestigation(artifact: Investigation, repository: EvidenceRepository) {
   const operation = investigationOperation(artifact, repository);
@@ -198,20 +202,21 @@ export async function loadInvestigation(id: string, repository: EvidenceReposito
 }
 export async function exportInvestigation(artifact: Investigation, repository: EvidenceRepository, language: AppLanguage) {
   const operation = investigationOperation(artifact, repository);
-  try { await operation.revalidate(); return await exportSourceDocument(renderInvestigation(artifact), language, operation); }
+  try { await operation.revalidate(); return await exportSourceDocument(renderInvestigation(artifact, language), language, operation); }
   finally { operation.dispose(); }
 }
 
 export interface InvestigationTaskPreview { readonly id: string; readonly title: string; readonly text: string }
 const taskTickets = new WeakMap<InvestigationTaskPreview, { artifact: Investigation; repository: EvidenceRepository; actionId: string; epoch: number }>();
-export async function previewInvestigationTask(artifact: Investigation, actionId: string, repository: EvidenceRepository): Promise<InvestigationTaskPreview> {
+export async function previewInvestigationTask(artifact: Investigation, actionId: string, repository: EvidenceRepository, language: AppLanguage = "en"): Promise<InvestigationTaskPreview> {
   const operation = investigationOperation(artifact, repository);
   try {
     const epoch = secureVaultEpoch();
     await operation.revalidate();
     const action = artifact.actions.find(action => action.id === actionId); if (!action) throw new Error("investigation-action-invalid");
     const evidence = action.findingIds.flatMap(id => artifact.findings.find(finding => finding.id === id)?.evidence || []);
-    const text = `${action.title}\n${action.rationale}\nUnverified investigation proposal; no alarm scheduled.\n${action.findingIds.map(id => { const finding = artifact.findings.find(item => item.id === id)!; return `${findingLabels[finding.kind]}: ${finding.kind === "fact" ? finding.evidence.map(ref => ref.quote).join("\n") : finding.text}`; }).join("\n")}\n${evidence.map(ref => `${ref.key} [${ref.start}-${ref.end}] SHA256 ${ref.fingerprint}\n${ref.quote}`).join("\n")}`;
+    const zh = language.startsWith("zh");
+    const text = `${action.title}\n${action.rationale}\n${zh ? "待確認的查證提案；尚未設定提醒。原文保留，沒有翻譯或事實認證。" : "Unverified investigation proposal; no alarm scheduled."}\n${action.findingIds.map(id => { const finding = artifact.findings.find(item => item.id === id)!; return `${findingLabels[finding.kind]}: ${finding.kind === "fact" ? finding.evidence.map(ref => ref.quote).join("\n") : finding.text}`; }).join("\n")}\n${evidence.map(ref => `${ref.key} [${ref.start}-${ref.end}] SHA256 ${ref.fingerprint}\n${ref.quote}`).join("\n")}`;
     const preview = Object.freeze({ id: action.id, title: action.title, text });
     operation.assertCurrent();
     if (repository.scope === "local" && epoch !== secureVaultEpoch()) throw new Error("vault-session-changed");

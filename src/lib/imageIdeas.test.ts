@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
 import { chooseAndroidImage, collectImage, imageIdeaKey, readImageIdea, recognizeImage, reviseImage, verifiedImageEvidence } from "./imageIdeas";
 import { checkEvidence, localEvidenceRepository, referenceQuote } from "./investigationEvidence";
-import { compileInvestigation, confirmInvestigationTask, exportInvestigation, localEvidenceOutline, previewInvestigationTask, publishInvestigationRelation } from "./investigation";
+import { compileInvestigation, confirmInvestigationTask, exportInvestigation, localEvidenceOutline, previewInvestigationTask, publishInvestigationRelation, renderInvestigation } from "./investigation";
 import { lockSecureVault, readSecureVault, unlockSecureVault } from "./secureSecretary";
 import { mockSecretaryVault } from "./secureSecretary.fixture";
 import { searchNoteSources, sourcesStillCurrent } from "./sourceWorkbench";
@@ -15,6 +15,22 @@ afterEach(async () => { vi.restoreAllMocks(); if (window.chengjing?.secretaryVau
 const image = (content = "synthetic-image") => new NodeBlob([content], { type: "image/png" }) as unknown as Blob;
 const details = (text = "ZT-82 印尼文截圖 Jadwal rapat hari Jumat") => ({ annotation: "ZT-82 討論沙發設計，這是我的想法", sourceUrl: "https://example.invalid/synthetic", sourceDate: "", rawText: text, correctedText: text, reviewed: false, engine: "manual", language: "" });
 describe("image collection to searchable, checked source", () => {
+  it("keeps Indonesian names/products/numbers/units verbatim, generates zh-TW explanations and requires Chinese annotations for literal Chinese lookup", async () => {
+    const original = "Sari menjadwalkan rapat hari Jumat. Produk Jenzo-82: 12 kg, 0.5%.";
+    const { card } = await collectImage("id-source.png", image(), { ...details(original), annotation: "", reviewed: true });
+    expect(await searchNoteSources("週五排程", "zh-TW", 24, false)).toHaveLength(0); // No cross-language semantic retrieval.
+    await reviseImage(card, { annotation: "週五排程（使用者繁中註記，並非自動翻譯）", sourceUrl: "", sourceDate: "", correctedText: original, reviewed: true });
+    expect((await searchNoteSources("週五排程", "zh-TW", 24, false))[0].key).toBe(`card:${card.id}`);
+    const source = (await localEvidenceRepository.resolve(`card:${card.id}`))!;
+    const proposal = localEvidenceOutline([source], "Jenzo-82", "zh-TW");
+    expect(proposal.actions[0].title).toBe("核對原文與缺少的紀錄");
+    const artifact = await compileInvestigation(proposal, [source.key], "週五排程", localEvidenceRepository);
+    const document = renderInvestigation(artifact, "zh-TW");
+    expect(document).toContain(original); expect(document).toContain("原文紀錄（引用不等於事實認證）"); expect(document).toContain("沒有自動翻譯");
+    expect(readImageIdea((await db.cards.get(card.id))!)?.rawText).toBe(original);
+    const remote = vi.spyOn(globalThis, "fetch");
+    await previewInvestigationTask(artifact, artifact.actions[0].id, localEvidenceRepository, "zh-TW"); expect(remote).not.toHaveBeenCalled();
+  });
   it("reuses Android picker and queues only its temporary UUID copy, never a source path", async () => {
     const remove = vi.fn(async () => ({ removed: true }));
     const open = vi.fn(async () => ({ canceled: false, files: [{ name: "synthetic.png", path: "a1234567-1234-1234-1234-123456789abc", data: "c3ludGhldGlj" }] }));

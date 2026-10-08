@@ -23,6 +23,16 @@ Synthetic Windows OCR was actually run on Chinese, Indonesian Latin text with En
 
 CI run IDs and exact final commit are recorded in the PR and local validation sidecar, after committing, rather than embedding a self-referential commit SHA in this file.
 
+## Reading language and R11 follow-up
+
+New Jenzo profiles default to `zh-TW`; explicitly persisted app-language choices remain available. Operating-system/source languages do not replace this reading default. Locally generated investigation explanations, task proposals and exported document headings support Traditional Chinese while quoted Indonesian originals, names, product identifiers, numbers and units remain verbatim. Recognition-language choices are labelled in Chinese. OCR is transcription, not translation or Indonesian semantic understanding.
+
+Search remains literal keyword retrieval. A Chinese phrase does not semantically retrieve an Indonesian-only passage; user-added Traditional Chinese collection notes can make that record discoverable by those exact Chinese terms. This is manually annotated retrieval, not automatic translation or multilingual embedding search. The original/corrected Indonesian text and original image stay available for comparison. Unreviewed OCR remains excluded from evidence.
+
+No installed local Indonesian-to-Traditional-Chinese translator or multilingual embedding model was established in this task. Options for a later approved slice are: manual reading notes/glossary with original parallel text; an explicitly selected, locally installed translation model with protected named/numeric spans and human review; or a local multilingual embedding index with reindexing/version/privacy boundaries. Model/language-package downloads and cloud disclosure require separate authorization; no new package, account or upload is added here.
+
+R11 closes the original SourceWorkbench snapshot-export gap: source-derived encrypted drafts, saved notes and plaintext exports use retained-source guards, with rechecks after consent and every vault read/CAS retry, plus synchronous dispatch checks. Selected card/fragment/attachment writes revoke pending operations, including delete-and-restore. Source changes/removed images trigger a visible stale-source alert and disable persistence, preserving the manual draft. Re-search/recompose is required. The guard boundary is before dispatch, not rollback after native IO has begun.
+
 ## Meeting records and growth: next bounded slice
 
 Existing TXT/Markdown/DOCX/PDF-text import already retains original attachments and produces searchable/citable text. This slice does not claim a new meeting-classification UI. Use the current imported note and source investigation to review exact passages and manually accept derived tasks/associations. A PDF text layer is not OCR; a video link is not complete video understanding.
