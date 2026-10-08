@@ -9,7 +9,8 @@ import { searchQueryTerms } from "./searchIndex";
 import { isMaterializedCard } from "./journalVisibility";
 import { searchNoteSources, sourceContext } from "./sourceWorkbench";
 import { requireCloudBudgetAuthorization } from "./secretaryBudget";
-import { requireAISources, type SourcePrivacy } from "./privateOutbound";
+import { requireAIContext, requireAISources, type SourcePrivacy } from "./privateOutbound";
+import { validatePublicSourceContext } from "./publicSourceContext";
 
 function currentLanguage(): AppLanguage {
   return useAppStore.getState().language || "zh-TW";
@@ -87,6 +88,8 @@ export async function runAI(options: {
   onToken?: (text: string) => void;
   onProgress?: (progress: number, file: string) => void;
 }): Promise<AIResponse> {
+  const structuredSources = requireAIContext(options.engine, options.context);
+  if (structuredSources) await validatePublicSourceContext(structuredSources);
   requireAISources(options.engine, options.sources || []);
   if (options.engine !== "local-gemma") requireCloudBudgetAuthorization();
   const language = currentLanguage();

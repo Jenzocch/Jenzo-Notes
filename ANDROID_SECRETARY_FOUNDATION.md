@@ -4,11 +4,11 @@ This branch stacks on draft PR2 (`f628962af44d6c32361559dab452222af63e718d`), re
 
 ## Delivered slice
 
-### R6 queued-authority correction (independent review pending)
+### R6 queued-authority correction (bounded independent review passed)
 
 At native bridge ingress, private requests capture an opaque generation ticket. Background, navigation, destruction and explicit lock revoke the generation and clear unlock/restore-preview state immediately. The vault validates that ticket under the same monitor used for the entire read/mutation/notification handoff. Resume or a new unlock cannot authorize old queued work. Explicit lock bypasses the worker queue. Reply filtering remains a second boundary; it is not the authorization check.
 
-The production Java guard has 43 deterministic host race checks, including occupied workers, stale unlock/commit/schedule/restore, lifecycle revocation, fresh unlock and authorization/mutation serialization. Android instrumentation adds file/revision assertions and is compiled only. JVM tests and source wiring checks do not prove Android device lifecycle behavior. R6 requires independent review of the new commit before being considered closed.
+The production Java guard has 43 deterministic host race checks, including occupied workers, stale unlock/commit/schedule/restore, lifecycle revocation, fresh unlock and authorization/mutation serialization. Android instrumentation adds file/revision assertions and is compiled only. Independent review of `bf37929`/`6cfc617` passed R6 within this bounded scope; the native files are unchanged in the R7/R8 slice. JVM tests and source wiring checks do not prove Android device lifecycle behavior.
 
 R6 review head: `bf37929a1ce2c4fa7791f51790d54532efa3307c`. Full frontend 180 tests and Node 82 tests passed (one Windows POSIX-only skip); typecheck, full offline APK and Android lint passed. Both exact-head [push CI](https://github.com/Jenzocch/Jenzo-Notes/actions/runs/37725662310) and [PR CI](https://github.com/Jenzocch/Jenzo-Notes/actions/runs/37725666461) passed on Windows/Linux. The following private-outbound slice is a separate commit; see the release-gate record for its narrower evidence and remaining review gates.
 

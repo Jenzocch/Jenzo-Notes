@@ -48,9 +48,9 @@ it("refuses explicit private sync operations before producing a transport packet
   expect(await db.table("syncOutbox").count()).toBe(1);
 });
 
-it("sharing refuses private provenance before any HTTP or identity use", () => {
+it("sharing refuses private provenance before any HTTP or identity use", async () => {
   const fetch = vi.spyOn(globalThis, "fetch");
-  expect(() => communityApi.share({ id: "mock", displayName: "Mock", token: "mock-only", seal: "mock" }, { sourceType: "card", sourceKey: source.key, title: source.title, body: source.excerpt, intention: "share" })).toThrow("private-outbound-denied:share");
+  await expect(communityApi.share({ id: "mock", displayName: "Mock", token: "mock-only", seal: "mock" }, { sourceType: "card", sourceKey: source.key, title: source.title, body: source.excerpt, intention: "share" })).rejects.toThrow("private-outbound-denied:share");
   expect(fetch).not.toHaveBeenCalled();
 });
 

@@ -108,7 +108,7 @@ export function SourceWorkbench() {
     const current = session();
     setBusy(true); setError("");
     try {
-      if (exportFile) await exportSourceDocument(finalText, true, language);
+      if (exportFile) await exportSourceDocument(finalText, language);
       else {
         await savePrivateItem("note", finalText);
         if (!current()) return;

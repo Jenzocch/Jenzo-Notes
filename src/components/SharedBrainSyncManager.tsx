@@ -64,7 +64,7 @@ export function SharedBrainSyncManager() {
       running.current.add(item.shareId);
       const request = item.missing
         ? communityApi.deleteNeuron(item.remoteId, identity).then(() => db.brainShares.update(item.shareId, { status: "deleted", updatedAt: Date.now() }))
-        : communityApi.updateNeuron(identity, item.remoteId, { title: item.title, body: item.body }).then(() => db.brainShares.update(item.shareId, { updatedAt: Date.now() }));
+        : communityApi.updateNeuron(identity, item.remoteId, { sourceKey: item.shareId }).then(() => db.brainShares.update(item.shareId, { updatedAt: Date.now() }));
       void request.catch(() => {}).finally(() => running.current.delete(item.shareId));
     }
   }, [identity, items]);

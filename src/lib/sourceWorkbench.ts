@@ -144,9 +144,9 @@ export function safeDocumentExport(text: string) {
   const fence = "~".repeat(longest + 1);
   return `${fence}text\n${text}\n${fence}\n`;
 }
-export async function exportSourceDocument(text: string, privateDocument = true, language: AppLanguage = "en") {
+export async function exportSourceDocument(text: string, language: AppLanguage = "en") {
   // One-time manual plaintext disclosure; a selected folder may be cloud-backed.
-  if (privateDocument && !window.confirm(language.startsWith("zh") ? "匯出這份私密草稿的明文副本？所選位置可能同步至雲端。這次匯出不會授權未來的遠端 AI、MCP、同步或分享。" : "Export a plaintext copy of this private draft? The selected destination may sync to a cloud service. This does not permit future remote AI, MCP, sync or sharing.")) return { canceled: true };
+  if (!window.confirm(typeof language === "string" && language.startsWith("zh") ? "匯出這份私密草稿的明文副本？所選位置可能同步至雲端。這次匯出不會授權未來的遠端 AI、MCP、同步或分享。" : "Export a plaintext copy of this private draft? The selected destination may sync to a cloud service. This does not permit future remote AI, MCP, sync or sharing.")) return { canceled: true };
   const data = safeDocumentExport(text);
   const name = `notes-document-${new Date().toISOString().slice(0, 10)}.md`;
   if (window.chengjing) return window.chengjing.files.save({ title: "Export safe text document", defaultPath: name, filters: [{ name: "Markdown (inert text)", extensions: ["md"] }], data });

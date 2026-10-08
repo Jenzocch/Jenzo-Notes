@@ -1,5 +1,7 @@
 import type { BrainContentType } from "../types";
 import { requirePublicSources, type SourcePrivacy } from "./privateOutbound";
+import { db } from "../db";
+import { resolvePublicShareSource } from "./publicShareSource";
 
 export const COMMUNITY_ENDPOINT = "https://chengjing-wish-pool.coyoter.workers.dev";
 export const COMMUNITY_IDENTITY_STORAGE_KEY = "chengjing-community-identity-v1";
@@ -191,13 +193,19 @@ export const communityApi = {
   neuron(id: string, identity: CommunityIdentity | null, cursor = ""): Promise<{ item: SharedNeuronDetail }> {
     return requestJson(`/v1/community/neurons/${encoded(id)}${cursor ? `?cursor=${encoded(cursor)}` : ""}`, {}, { identity });
   },
-  share(identity: CommunityIdentity, input: { sourceType: BrainContentType; title: string; body: string; intention: SharedIntention; sourceKey?: string; sources?: readonly SourcePrivacy[] }): Promise<{ item: SharedNeuronDetail }> {
+  async share(identity: CommunityIdentity, input: { sourceType: BrainContentType; title: string; body: string; intention: SharedIntention; sourceKey: string; sources?: readonly SourcePrivacy[] }): Promise<{ item: SharedNeuronDetail }> {
     requirePublicSources("share", [{ type: input.sourceType, key: input.sourceKey }, ...(input.sources || [])]);
-    const { sourceType, title, body, intention } = input;
+    const resolved = await resolvePublicShareSource(input.sourceKey);
+    if (input.sourceType !== resolved.sourceType || input.title !== resolved.title || input.body !== resolved.body) throw new Error("share-source-changed");
+    const { sourceType, title, body } = resolved;
+    const { intention } = input;
     return requestJson("/v1/community/neurons", { method: "POST", body: JSON.stringify({ sourceType, title, body, intention }) }, { identity });
   },
-  updateNeuron(identity: CommunityIdentity, id: string, input: { title: string; body: string }): Promise<{ updated: true }> {
-    return requestJson(`/v1/community/neurons/${encoded(id)}`, { method: "PATCH", body: JSON.stringify(input) }, { identity });
+  async updateNeuron(identity: CommunityIdentity, id: string, input: { sourceKey: string }): Promise<{ updated: true }> {
+    const resolved = await resolvePublicShareSource(input.sourceKey);
+    const share = await db.brainShares.get(resolved.key);
+    if (!share || share.status !== "shared" || share.remoteId !== id || `${share.localType}:${share.localId}` !== resolved.key) throw new Error("share-source-unbound");
+    return requestJson(`/v1/community/neurons/${encoded(id)}`, { method: "PATCH", body: JSON.stringify({ title: resolved.title, body: resolved.body }) }, { identity });
   },
   fork(identity: CommunityIdentity, id: string): Promise<{ item: SharedNeuronDetail }> {
     return requestJson(`/v1/community/neurons/${encoded(id)}/fork`, { method: "POST", body: "{}" }, { identity });
