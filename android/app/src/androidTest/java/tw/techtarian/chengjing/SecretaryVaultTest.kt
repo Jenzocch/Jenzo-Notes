@@ -28,7 +28,11 @@ class SecretaryVaultTest {
         KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(vault.keyAlias) }
         root.deleteRecursively() // Only this test's UUID-scoped cache directory.
     }
-    private fun call(name: String, args: JSONObject = JSONObject()) = vault.call("secretary.vault.$name", args)
+    private fun call(name: String, args: JSONObject = JSONObject()) = when (name) {
+        "status" -> vault.status()
+        "lock" -> vault.lock()
+        else -> vault.call("secretary.vault.$name", args, vault.captureTicket())
+    }
     private fun data(title: String = marker) = JSONObject().put("version", 2).put("entries", JSONObject().put("secretary-item:synthetic-note", JSONObject()
         .put("id", "synthetic-note").put("kind", "note").put("title", title).put("plainText", title).put("done", false).put("createdAt", 1).put("updatedAt", 2)))
     private fun commit(revision: Long, value: JSONObject = data()) = call("commit", JSONObject().put("expectedRevision", revision).put("data", value))
@@ -39,9 +43,9 @@ class SecretaryVaultTest {
         val backup = call("backup").getString("data"); assertFalse(backup.contains(marker))
         call("lock"); denied { call("read") }
         val restarted = SecretaryVault(context, true); restarted.setActive(true)
-        assertEquals("locked", restarted.status().getString("state")); restarted.call("secretary.vault.unlock", JSONObject())
-        assertEquals(marker, restarted.call("secretary.vault.read", JSONObject()).getJSONObject("data").getJSONObject("entries").getJSONObject("secretary-item:synthetic-note").getString("plainText"))
-        restarted.setActive(false); denied { restarted.call("secretary.vault.unlock", JSONObject()) }; denied { restarted.call("secretary.vault.read", JSONObject()) }
+        assertEquals("locked", restarted.status().getString("state")); restarted.call("secretary.vault.unlock", JSONObject(), restarted.captureTicket())
+        assertEquals(marker, restarted.call("secretary.vault.read", JSONObject(), restarted.captureTicket()).getJSONObject("data").getJSONObject("entries").getJSONObject("secretary-item:synthetic-note").getString("plainText"))
+        restarted.setActive(false); denied { restarted.call("secretary.vault.unlock", JSONObject(), restarted.captureTicket()) }; denied { restarted.call("secretary.vault.read", JSONObject(), restarted.captureTicket()) }
     }
     @Test fun restorePreviewConflictCheckpointAndRollback() {
         call("unlock"); commit(0)
@@ -72,9 +76,23 @@ class SecretaryVaultTest {
         val incoming = data(); incoming.getJSONObject("entries").put("secretary-android-notification:fake-operation", JSONObject().put("state", "scheduled"))
         commit(0, incoming)
         assertFalse(call("read").getJSONObject("data").getJSONObject("entries").has("secretary-android-notification:fake-operation"))
-        assertFalse(vault.call("secretary.notifications.status", JSONObject()).getBoolean("available"))
-        denied { vault.call("secretary.notifications.schedule", JSONObject().put("operationId", "synthetic-operation").put("fingerprint", "fake")) }
+        assertFalse(vault.call("secretary.notifications.status", JSONObject(), vault.captureTicket()).getBoolean("available"))
+        denied { vault.call("secretary.notifications.schedule", JSONObject().put("operationId", "synthetic-operation").put("fingerprint", "fake"), vault.captureTicket()) }
         val invalid = data(); invalid.getJSONObject("entries").put("arbitrary-namespace", JSONObject())
         denied { commit(1, invalid) }; assertEquals(1L, call("read").getLong("revision"))
+    }
+    @Test fun queuedOldRequestsAreRevokedBeforeAnyEffect() {
+        val staleUnlock = vault.captureTicket()
+        vault.setActive(false); vault.setActive(true)
+        denied { vault.call("secretary.vault.unlock", JSONObject(), staleUnlock) }
+        assertEquals("locked", vault.status().getString("state"))
+        assertFalse(File(root, "private-secretary-v2/android-secretary-v2.vault.json").exists())
+        call("unlock"); val old = vault.captureTicket(); val before = call("backup").getString("data")
+        vault.lock(); call("unlock")
+        denied { vault.call("secretary.vault.commit", JSONObject().put("expectedRevision", 0).put("data", data()), old) }
+        denied { vault.call("secretary.notifications.schedule", JSONObject(), old) }
+        denied { vault.call("secretary.vault.confirmRestore", JSONObject(), old) }
+        assertEquals(before, call("backup").getString("data"))
+        assertEquals(0L, call("read").getLong("revision"))
     }
 }

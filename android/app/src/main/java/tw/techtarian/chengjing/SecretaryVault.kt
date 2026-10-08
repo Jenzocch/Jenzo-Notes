@@ -20,20 +20,25 @@ class SecretaryVault(context: Context, private val isolated: Boolean = false) {
     internal val keyAlias = if (isolated) "chengjing-private-secretary-v2-qa-" + java.security.MessageDigest.getInstance("SHA-256")
         .digest(directory.absolutePath.toByteArray()).take(12).joinToString("") { "%02x".format(it) } else "chengjing-private-secretary-v2"
     private var unlocked = false
-    private var active = false
+    private val session = SecretarySessionGuard()
     private val previews = mutableMapOf<String, Pair<Long, JSONObject>>()
     private val limit = 2 * 1024 * 1024
     private val appContext = context.applicationContext
     private val notifier by lazy { SecretaryNotifications(appContext, isolated) }
     private data class Opened(val id: String, val revision: Long, val data: JSONObject)
 
-    @Synchronized fun setActive(value: Boolean) {
-        active = value
-        if (!value) { unlocked = false; previews.clear() }
+    fun setActive(value: Boolean) = session.setActive(value) { unlocked = false; previews.clear() }
+    fun captureTicket(): SecretarySessionGuard.Ticket = session.capture()
+    fun isCurrent(ticket: SecretarySessionGuard.Ticket): Boolean = session.isCurrent(ticket)
+    fun lock(): JSONObject {
+        session.revoke { unlocked = false; previews.clear() }
+        return status()
     }
-    @Synchronized fun status(): JSONObject = JSONObject().put("state", if (unlocked && active) "unlocked" else "locked")
-        .put("protection", "android-keystore+aes-256-gcm").put("formatVersion", 2)
-    private fun requireSession() { check(active && unlocked) { "vault-locked" } }
+    fun status(): JSONObject = session.inspect {
+        JSONObject().put("state", if (unlocked) "unlocked" else "locked")
+            .put("protection", "android-keystore+aes-256-gcm").put("formatVersion", 2)
+    }
+    private fun requireSession() { check(unlocked) { "vault-locked" } }
     private fun key(create: Boolean = false): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         val prior = store.getKey(keyAlias, null) as? SecretKey
@@ -143,12 +148,11 @@ class SecretaryVault(context: Context, private val isolated: Boolean = false) {
         return JSONObject().put("token", token).put("formatVersion", 2).put("entries", incoming.data.getJSONObject("entries").length())
             .put("expectedRevision", current.revision).put("accountBound", true)
     }
-    @Synchronized fun call(method: String, args: JSONObject): JSONObject {
+    fun call(method: String, args: JSONObject, ticket: SecretarySessionGuard.Ticket): JSONObject = session.execute(ticket) { callAuthorized(method, args) }
+    private fun callAuthorized(method: String, args: JSONObject): JSONObject {
         when (method) {
             "secretary.vault.status" -> return status()
-            "secretary.vault.lock" -> { unlocked = false; previews.clear(); return status() }
             "secretary.vault.unlock" -> {
-                check(active) { "vault-session-inactive" }
                 if (!file.exists() && !File(file.path + ".bak").exists()) {
                     key(true)
                     val empty = JSONObject().put("version", 2).put("entries", JSONObject())
@@ -196,8 +200,8 @@ class SecretaryVault(context: Context, private val isolated: Boolean = false) {
         }
     }
     /** Only the non-exported receiver can deliver while the UI session remains locked. */
-    @Synchronized fun deliver(operationId: String) {
-        if (!file.exists()) return
+    fun deliver(operationId: String) = session.inspect {
+        if (!file.exists()) return@inspect
         val current = open(readRaw())
         notifier.deliver(current.data, operationId) { store(open(readRaw()), current.data) }
     }

@@ -4,6 +4,14 @@ This branch stacks on draft PR2 (`f628962af44d6c32361559dab452222af63e718d`), re
 
 ## Delivered slice
 
+### R6 queued-authority correction (independent review pending)
+
+At native bridge ingress, private requests capture an opaque generation ticket. Background, navigation, destruction and explicit lock revoke the generation and clear unlock/restore-preview state immediately. The vault validates that ticket under the same monitor used for the entire read/mutation/notification handoff. Resume or a new unlock cannot authorize old queued work. Explicit lock bypasses the worker queue. Reply filtering remains a second boundary; it is not the authorization check.
+
+The production Java guard has 43 deterministic host race checks, including occupied workers, stale unlock/commit/schedule/restore, lifecycle revocation, fresh unlock and authorization/mutation serialization. Android instrumentation adds file/revision assertions and is compiled only. JVM tests and source wiring checks do not prove Android device lifecycle behavior. R6 requires independent review of the new commit before being considered closed.
+
+Punctual audible alarms remain a release gate: current inexact notification delivery does not meet that requirement. See [release gates](SECRETARY_RELEASE_GATES.md). No exact-alarm permission has been added or granted.
+
 The existing Kotlin/WebView app now exposes PR2's fixed private-vault bridge to the packaged HTTPS top-level document. Legacy notes, credentials (`chengjing-credentials-v1`), editing, sync and backups are untouched; no migration or private-data upload occurs. Quick private capture, searchable sources and editable/exportable documents use the existing React flow once the new vault is unlocked.
 
 `SecretaryVault` writes only `filesDir/private-secretary-v2/android-secretary-v2.vault.json`, using a separate Android Keystore AES-256 key (`chengjing-private-secretary-v2`) and authenticated AES-GCM envelope. No raw key file, plaintext fallback or caller-supplied path exists. QA has a separate path-derived alias. UUID/version/protection/revision are authenticated; document size and record structure are validated. AtomicFile writes and revision compare-and-swap protect updates. Missing keys, corrupted ciphertext and unsupported backups fail closed while retaining the original. Unlock is explicit app-session access, without a biometric claim; moving to background, navigation and destruction lock the session. Late private replies/transcripts are discarded.

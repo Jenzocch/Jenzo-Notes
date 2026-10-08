@@ -134,14 +134,19 @@ class MainActivity : ComponentActivity() {
                 val id = request.getString("id")
                 val args = request.optJSONObject("args") ?: JSONObject()
                 val privateRequest = request.getString("method").startsWith("secretary.")
+                var privateTicket: SecretarySessionGuard.Ticket? = null
                 val documentEpoch = secretaryDocumentEpoch
                 val reply: (Any?, String?) -> Unit = { value, error ->
                     val envelope = JSONObject().put("id", id).put("value", value ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL)
                     runOnUiThread {
-                        val safeEnvelope = if (privateRequest && documentEpoch != secretaryDocumentEpoch)
+                        val safeEnvelope = if (privateRequest && (documentEpoch != secretaryDocumentEpoch || privateTicket?.let { !secretaryVault.isCurrent(it) } == true))
                             JSONObject().put("id", id).put("value", JSONObject.NULL).put("error", "vault-session-changed") else envelope
                         if (::web.isInitialized && SecretaryBridgePolicy.trustedDocument(web.url ?: "")) web.evaluateJavascript("window.__chengjingNativeReply?.($safeEnvelope)", null)
                     }
+                }
+                if (privateRequest && request.getString("method") !in listOf("secretary.vault.lock", "secretary.vault.status")) {
+                    try { privateTicket = secretaryVault.captureTicket() }
+                    catch (error: IllegalStateException) { reply(null, error.message ?: "vault-session-inactive"); return@addWebMessageListener }
                 }
                 if(qaIsolation&&request.getString("method").substringBefore('.') in listOf("google","cloud","sync")) {
                     reply(null,"Cloud access is disabled in the isolated UI test workspace")
@@ -151,7 +156,8 @@ class MainActivity : ComponentActivity() {
                     "secretary.speech.status" -> reply(secretarySpeech.status(), null)
                     "secretary.speech.start" -> secretarySpeech.start(args.getString("sessionId"), args.getString("language"), reply)
                     "secretary.speech.stop" -> { secretarySpeech.stop(args.getString("sessionId")); reply(JSONObject().put("stopped", true), null) }
-                    "secretary.vault.lock" -> { secretarySpeech.stop(); executor.execute { reply(secretaryVault.call("secretary.vault.lock", args), null); emit("vault-state", secretaryVault.status()) } }
+                    "secretary.vault.status" -> reply(secretaryVault.status(), null)
+                    "secretary.vault.lock" -> { secretaryVault.lock(); secretarySpeech.stop(); reply(secretaryVault.status(), null); emit("vault-state", secretaryVault.status()) }
                     "app.ready" -> runOnUiThread {
                         val cover=launchSurface;launchSurface=null
                         if(cover!=null)cover.animate().alpha(0f).setDuration(if(android.animation.ValueAnimator.areAnimatorsEnabled())120 else 0).withEndAction{(cover.parent as? android.view.ViewGroup)?.removeView(cover)}.start()
@@ -201,7 +207,7 @@ class MainActivity : ComponentActivity() {
                     else -> executor.execute {
                         try {
                             val method = request.getString("method")
-                            reply(if (privateRequest) secretaryVault.call(method, args) else services.call(method, args), null)
+                            reply(if (privateRequest) secretaryVault.call(method, args, requireNotNull(privateTicket)) else services.call(method, args), null)
                         } catch (error: Exception) { reply(null, error.message ?: "Operation failed") }
                     }
                 }
@@ -246,8 +252,8 @@ class MainActivity : ComponentActivity() {
     fun emit(name: String, data: JSONObject) { runOnUiThread { if (::web.isInitialized) web.evaluateJavascript("window.dispatchEvent(new CustomEvent('chengjing:android-$name',{detail:$data}))", null) } }
     private fun lockPrivateSession() {
         secretaryDocumentEpoch++
-        secretarySpeech.stop()
         secretaryVault.setActive(false)
+        secretarySpeech.stop()
         emit("vault-state", secretaryVault.status())
     }
     override fun onPause() { secretaryForeground = false; lockPrivateSession(); if (::web.isInitialized) emit("pause", JSONObject()); super.onPause() }
