@@ -144,11 +144,14 @@ export function safeDocumentExport(text: string) {
   const fence = "~".repeat(longest + 1);
   return `${fence}text\n${text}\n${fence}\n`;
 }
-export async function exportSourceDocument(text: string, language: AppLanguage = "en") {
+export async function exportSourceDocument(text: string, language: AppLanguage = "en", sourceGuard?: { revalidate(): Promise<void>; assertCurrent(): void }) {
   // One-time manual plaintext disclosure; a selected folder may be cloud-backed.
   if (!window.confirm(typeof language === "string" && language.startsWith("zh") ? "匯出這份私密草稿的明文副本？所選位置可能同步至雲端。這次匯出不會授權未來的遠端 AI、MCP、同步或分享。" : "Export a plaintext copy of this private draft? The selected destination may sync to a cloud service. This does not permit future remote AI, MCP, sync or sharing.")) return { canceled: true };
   const data = safeDocumentExport(text);
   const name = `notes-document-${new Date().toISOString().slice(0, 10)}.md`;
+  // Consent is separate from source validity. Revalidate after the prompt and
+  // assert synchronously at dispatch, before any file-save/download side effect.
+  if (sourceGuard) { await sourceGuard.revalidate(); sourceGuard.assertCurrent(); }
   if (window.chengjing) return window.chengjing.files.save({ title: "Export safe text document", defaultPath: name, filters: [{ name: "Markdown (inert text)", extensions: ["md"] }], data });
   const url = URL.createObjectURL(new Blob([data], { type: "text/markdown;charset=utf-8" }));
   const link = document.createElement("a"); link.href = url; link.download = name; link.click();

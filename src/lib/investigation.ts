@@ -28,6 +28,37 @@ export interface InvestigationProposal {
 }
 const boundedText = (value: unknown, max: number) => { if (typeof value !== "string" || !value.trim() || value.length > max) throw new Error("investigation-text-invalid"); return value.trim(); };
 
+/** Revoke an in-flight operation even if an input is changed and then restored.
+ * Hook notifications intentionally fail closed on attempted writes/rollbacks.
+ * Fresh authoritative reads still run after asynchronous preparation. This is a
+ * dispatch guard, not a distributed transaction between IndexedDB and native IO.
+ */
+function investigationOperation(artifact: Investigation, repository: EvidenceRepository) {
+  const epoch = secureVaultEpoch(); const sampleVersion = repository instanceof FG17EvidenceRepository ? repository.version : null;
+  const keys = new Set(artifact.inputSources.map(source => source.key)); let revoked = false;
+  const disposers: Array<() => void> = [];
+  if (repository.scope === "local") {
+    for (const [prefix, table] of [["card", db.cards], ["fragment", db.fragments]] as const) {
+      const changed = (key: unknown) => { if (keys.has(`${prefix}:${String(key)}`)) revoked = true; };
+      const updating = (_changes: unknown, key: unknown) => changed(key);
+      const creating = (key: unknown, record: { id?: string }) => changed(key ?? record.id);
+      table.hook("updating", updating); table.hook("deleting", changed); table.hook("creating", creating);
+      disposers.push(() => { table.hook("updating").unsubscribe(updating); table.hook("deleting").unsubscribe(changed); table.hook("creating").unsubscribe(creating); });
+    }
+    const lock = () => { revoked = true; };
+    // Private inputs also depend on the native vault generation. Unrelated
+    // private-vault writes may require an explicit retry rather than risk reuse.
+    const vaultChange = () => { if (investigationPrivate(artifact)) revoked = true; };
+    window.addEventListener("chengjing:secure-vault-locking", lock); window.addEventListener("chengjing:secure-vault-changed", vaultChange);
+    disposers.push(() => { window.removeEventListener("chengjing:secure-vault-locking", lock); window.removeEventListener("chengjing:secure-vault-changed", vaultChange); });
+  }
+  const assertCurrent = () => {
+    if (revoked || repository instanceof FG17EvidenceRepository && repository.version !== sampleVersion) throw new Error("investigation-sources-invalidated; retrieve and preview again");
+    if (repository.scope === "local" && epoch !== secureVaultEpoch()) throw new Error("vault-session-changed");
+  };
+  return { assertCurrent, async revalidate() { assertCurrent(); await assertInvestigationCurrent(artifact, repository); assertCurrent(); }, dispose() { disposers.forEach(dispose => dispose()); } };
+}
+
 /** All model/manual proposals are untrusted. Resolve citations against selected
  * authority and derive privacy from ALL inputs, including unquoted inputs.
  * Fact text is always original quotations, never the proposer's paraphrase.
@@ -142,12 +173,13 @@ export function renderInvestigation(artifact: Investigation) {
   return `# ${artifact.question}\n\nScope: ${artifact.scope}. Quotations can be verified; interpretations are not established facts.\n` + artifact.findings.map(finding => `\n## ${findingLabels[finding.kind]}\n${finding.kind === "fact" ? "" : finding.text}\n${finding.evidence.map(quote).join("\n")}`).join("\n") + "\n## Relationship proposals\n" + artifact.relations.map(relation => `${relation.decision}: ${relation.reason}\n${relation.evidence.map(quote).join("\n")}`).join("\n") + "\n## Improvement / task proposals\n" + artifact.actions.map(action => `- ${action.title}: ${action.rationale} [findings: ${action.findingIds.join(", ")}]`).join("\n") + `\n\n## User notes (not revalidated conclusions)\n${artifact.notes}\n\n## All input sources / retained privacy\n` + artifact.inputSources.map(source => `${source.key}: ${source.privacy}, ${source.fingerprint}`).join("\n");
 }
 export async function saveInvestigation(artifact: Investigation, repository: EvidenceRepository) {
-  const epoch = secureVaultEpoch();
-  await assertInvestigationCurrent(artifact, repository);
-  if (repository instanceof FG17EvidenceRepository) { repository.drafts.set(artifact.id, structuredClone(artifact)); return; }
-  if (repository.scope !== "local") throw new Error("investigation-scope-invalid");
-  if (epoch !== secureVaultEpoch()) throw new Error("vault-session-changed");
-  await secureVaultTransaction(data => { data.entries[`secretary-investigation:${artifact.id}`] = structuredClone(artifact); });
+  const operation = investigationOperation(artifact, repository);
+  try {
+    await operation.revalidate();
+    if (repository instanceof FG17EvidenceRepository) { operation.assertCurrent(); repository.drafts.set(artifact.id, structuredClone(artifact)); return; }
+    if (repository.scope !== "local") throw new Error("investigation-scope-invalid");
+    await secureVaultTransaction(data => { data.entries[`secretary-investigation:${artifact.id}`] = structuredClone(artifact); }, operation);
+  } finally { operation.dispose(); }
 }
 export async function loadInvestigation(id: string, repository: EvidenceRepository) {
   if (!/^[\w-]{8,100}$/.test(id)) throw new Error("investigation-draft-invalid");
@@ -159,39 +191,48 @@ export async function loadInvestigation(id: string, repository: EvidenceReposito
   return draft;
 }
 export async function exportInvestigation(artifact: Investigation, repository: EvidenceRepository, language: AppLanguage) {
-  const epoch = secureVaultEpoch(); await assertInvestigationCurrent(artifact, repository);
-  if (repository.scope === "local" && epoch !== secureVaultEpoch()) throw new Error("vault-session-changed");
-  return exportSourceDocument(renderInvestigation(artifact), language);
+  const operation = investigationOperation(artifact, repository);
+  try { await operation.revalidate(); return await exportSourceDocument(renderInvestigation(artifact), language, operation); }
+  finally { operation.dispose(); }
 }
 
 export interface InvestigationTaskPreview { readonly id: string; readonly title: string; readonly text: string }
 const taskTickets = new WeakMap<InvestigationTaskPreview, { artifact: Investigation; repository: EvidenceRepository; actionId: string; epoch: number }>();
 export async function previewInvestigationTask(artifact: Investigation, actionId: string, repository: EvidenceRepository): Promise<InvestigationTaskPreview> {
-  const epoch = secureVaultEpoch();
-  await assertInvestigationCurrent(artifact, repository);
-  const action = artifact.actions.find(action => action.id === actionId); if (!action) throw new Error("investigation-action-invalid");
-  const evidence = action.findingIds.flatMap(id => artifact.findings.find(finding => finding.id === id)?.evidence || []);
-  const text = `${action.title}\n${action.rationale}\nUnverified investigation proposal; no alarm scheduled.\n${action.findingIds.map(id => { const finding = artifact.findings.find(item => item.id === id)!; return `${findingLabels[finding.kind]}: ${finding.kind === "fact" ? finding.evidence.map(ref => ref.quote).join("\n") : finding.text}`; }).join("\n")}\n${evidence.map(ref => `${ref.key} [${ref.start}-${ref.end}] SHA256 ${ref.fingerprint}\n${ref.quote}`).join("\n")}`;
-  const preview = Object.freeze({ id: action.id, title: action.title, text });
-  if (repository.scope === "local" && epoch !== secureVaultEpoch()) throw new Error("vault-session-changed");
-  taskTickets.set(preview, { artifact: structuredClone(artifact), repository, actionId, epoch }); return preview;
+  const operation = investigationOperation(artifact, repository);
+  try {
+    const epoch = secureVaultEpoch();
+    await operation.revalidate();
+    const action = artifact.actions.find(action => action.id === actionId); if (!action) throw new Error("investigation-action-invalid");
+    const evidence = action.findingIds.flatMap(id => artifact.findings.find(finding => finding.id === id)?.evidence || []);
+    const text = `${action.title}\n${action.rationale}\nUnverified investigation proposal; no alarm scheduled.\n${action.findingIds.map(id => { const finding = artifact.findings.find(item => item.id === id)!; return `${findingLabels[finding.kind]}: ${finding.kind === "fact" ? finding.evidence.map(ref => ref.quote).join("\n") : finding.text}`; }).join("\n")}\n${evidence.map(ref => `${ref.key} [${ref.start}-${ref.end}] SHA256 ${ref.fingerprint}\n${ref.quote}`).join("\n")}`;
+    const preview = Object.freeze({ id: action.id, title: action.title, text });
+    operation.assertCurrent();
+    if (repository.scope === "local" && epoch !== secureVaultEpoch()) throw new Error("vault-session-changed");
+    taskTickets.set(preview, { artifact: structuredClone(artifact), repository, actionId, epoch }); return preview;
+  } finally { operation.dispose(); }
 }
 export async function confirmInvestigationTask(preview: InvestigationTaskPreview) {
   const ticket = taskTickets.get(preview); if (!ticket) throw new Error("investigation-task-preview-required");
-  const { artifact, repository } = ticket; await assertInvestigationCurrent(artifact, repository);
-  if (repository instanceof FG17EvidenceRepository) {
-    const existing = repository.tasks.get(preview.id); if (existing) return existing;
-    const task = { id: preview.id, title: preview.title, plainText: preview.text, done: false }; repository.tasks.set(task.id, task); return task;
-  }
-  if (repository.scope !== "local" || ticket.epoch !== secureVaultEpoch()) throw new Error("vault-session-changed");
-  return secureVaultTransaction(data => {
-    const key = `secretary-item:${preview.id}`; const prior = data.entries[key] as PrivateItem | undefined;
-    if (prior) { if (prior.kind !== "task" || prior.plainText !== preview.text) throw new Error("investigation-task-conflict"); return prior; }
-    const now = Date.now(); const task: PrivateItem = { id: preview.id, kind: "task", title: preview.title, plainText: preview.text, done: false, createdAt: now, updatedAt: now };
-    data.entries[key] = task;
-    data.entries[`secretary-task-evidence:${preview.id}`] = { version: 1, taskId: preview.id, investigationId: artifact.id, inputSources: artifact.inputSources, evidence: artifact.findings.filter(finding => artifact.actions.find(action => action.id === ticket.actionId)?.findingIds.includes(finding.id)).flatMap(finding => finding.evidence) };
-    return task;
-  });
+  const { artifact, repository } = ticket; const operation = investigationOperation(artifact, repository);
+  try {
+    await operation.revalidate();
+    if (repository instanceof FG17EvidenceRepository) {
+      operation.assertCurrent();
+      const existing = repository.tasks.get(preview.id); if (existing) return existing;
+      const task = { id: preview.id, title: preview.title, plainText: preview.text, done: false }; repository.tasks.set(task.id, task); return task;
+    }
+    if (repository.scope !== "local" || ticket.epoch !== secureVaultEpoch()) throw new Error("vault-session-changed");
+    return await secureVaultTransaction(data => {
+      const key = `secretary-item:${preview.id}`; const prior = data.entries[key] as PrivateItem | undefined;
+      if (prior) { if (prior.kind !== "task" || prior.plainText !== preview.text) throw new Error("investigation-task-conflict"); return prior; }
+      const now = Date.now(); const task: PrivateItem = { id: preview.id, kind: "task", title: preview.title, plainText: preview.text, done: false, createdAt: now, updatedAt: now };
+      data.entries[key] = task;
+      data.entries[`secretary-task-evidence:${preview.id}`] = { version: 1, taskId: preview.id, investigationId: artifact.id, inputSources: artifact.inputSources, evidence: artifact.findings.filter(finding => artifact.actions.find(action => action.id === ticket.actionId)?.findingIds.includes(finding.id)).flatMap(finding => finding.evidence) };
+      return task;
+    }, operation);
+  } catch (error) { taskTickets.delete(preview); throw error; }
+  finally { operation.dispose(); }
 }
 
 export async function publishInvestigationRelation(artifact: Investigation, relationId: string, repository: EvidenceRepository) {

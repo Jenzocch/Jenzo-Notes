@@ -55,10 +55,32 @@ AI analysis call or promise of automatic causal discovery.
 
 ## Validation and remaining boundaries
 
+R10 adds a dispatch-time persistence guard. Every awaited vault snapshot read
+(including a CAS retry) is followed by fresh source validation before constructing
+the draft/task records. Source writes/deletions and vault lock revoke the pending
+operation; a final synchronous assertion runs immediately before native commit.
+Even a source edited then restored while preparation waits requires a fresh
+preview. Failure revokes the task preview and creates neither task nor metadata.
+All inputs are monitored, including unquoted private inputs. Private-vault writes
+may conservatively cancel another pending private-source operation; explicitly
+retry with a fresh preview. Existing confirmed tasks are not removed.
+
+Export also revalidates after explicit consent and before file-save/download
+dispatch. These guards do not provide a distributed transaction between IndexedDB
+and native IO: a source changed after commit/file-save dispatch is not a rollback
+of that already-dispatched operation. Native vault CAS/session checks still apply;
+existing task evidence status exposes subsequent changes. Graph writes retain
+their existing source re-read and public-scope checks inside the IndexedDB
+transaction. No native permission or bridge/schema change is introduced.
+
 `src/lib/investigation.test.ts` covers retrieval, full-text tails, both-end quotes,
 forged/unselected citations, same-source conflicts, retained unquoted privacy,
 manifest tampering, isolated persistence, changed/deleted/locked sources, task
-deduplication, opaque previews, and lock/unlock session revocation. Component tests
+deduplication, opaque previews, and lock/unlock session revocation.
+`src/lib/investigationRaces.test.ts` covers the delayed-read deletion
+counterexample, edited/restored sources, fragments, lock/unlock, final multi-source
+checks, CAS retries, unquoted private input changes, draft persistence and export
+consent races, alongside valid confirmation/deduplication. Component tests
 cover visible invalidation and sandbox disposal. `scripts/qa-investigation.mjs`
 uses synthetic fixtures and an installed isolated browser at desktop/mobile sizes;
 it checks consent, inert export with provenance, evidence invalidation and existing

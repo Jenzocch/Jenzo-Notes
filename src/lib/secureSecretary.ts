@@ -20,13 +20,18 @@ export async function unlockSecureVault() { const status = await bridge().unlock
 export async function lockSecureVault() { epoch++; window.dispatchEvent(new Event("chengjing:secure-vault-locking")); try { return await bridge().lock(); } finally { vaultChanged(); } }
 export function invalidateVaultSession() { epoch++; window.dispatchEvent(new Event("chengjing:secure-vault-locking")); vaultChanged(); }
 export async function readSecureVault() { const version = epoch; const value = await bridge().read(); if (version !== epoch) throw new Error("vault-session-changed"); return value; }
-export async function secureVaultTransaction<T>(change: (data: VaultData) => T): Promise<T> {
+export interface PersistenceGuard { revalidate(): Promise<void>; assertCurrent(): void }
+export async function secureVaultTransaction<T>(change: (data: VaultData) => T, guard?: PersistenceGuard): Promise<T> {
   const version = epoch;
   for (let attempt = 0; attempt < 5; attempt++) {
-    const snapshot = await readSecureVault(); const previous = JSON.stringify(snapshot.data); const result = change(snapshot.data);
+    const snapshot = await readSecureVault();
+    // Source-dependent operations validate after every awaited snapshot read,
+    // including CAS retries. Existing synchronous vault mutations are unchanged.
+    if (guard) { await guard.revalidate(); guard.assertCurrent(); }
+    const previous = JSON.stringify(snapshot.data); const result = change(snapshot.data);
     if (version !== epoch) throw new Error("vault-session-changed");
     if (JSON.stringify(snapshot.data) === previous) return result;
-    try { await bridge().commit({ expectedRevision: snapshot.revision, data: snapshot.data }); if (version !== epoch) throw new Error("vault-session-changed"); vaultChanged(); return result; }
+    try { guard?.assertCurrent(); await bridge().commit({ expectedRevision: snapshot.revision, data: snapshot.data }); if (version !== epoch) throw new Error("vault-session-changed"); vaultChanged(); return result; }
     catch (error) { if (!(error instanceof Error) || !error.message.includes("vault-revision-conflict") || version !== epoch) throw error; }
   }
   throw new Error("vault-concurrent-change; retry explicitly");

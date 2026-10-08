@@ -1,16 +1,36 @@
 {
+  "revision": "PR4 R10 candidate",
   "frontend": {
-    "passed": 210,
-    "files": 51
+    "files": 52,
+    "passed": 222
   },
   "node": {
+    "skipped": 1,
     "skipReason": "POSIX permissions on Windows",
-    "passed": 82,
-    "skipped": 1
+    "passed": 82
   },
   "typecheck": "pass",
   "build": "pass",
   "externalAICalls": 0,
+  "r10": {
+    "tests": 12,
+    "adjacentCases": [
+      "source edit",
+      "lock",
+      "lock followed by unlock",
+      "same-revision edit then restore",
+      "quick fragment deletion",
+      "final multi-source validation",
+      "CAS retry",
+      "unquoted private input change",
+      "draft persistence",
+      "export consent race",
+      "valid confirmation and deduplication"
+    ],
+    "originalDelayedReadDeletion": "rejects; no native commit, task or metadata",
+    "boundary": "fresh validation after every vault read and synchronous check before dispatch; no distributed rollback after native commit/file-save dispatch",
+    "passed": 12
+  },
   "investigation": {
     "report": [
       {
