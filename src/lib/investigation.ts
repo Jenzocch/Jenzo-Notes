@@ -3,6 +3,7 @@ import type { AppLanguage, BrainEdgeRecord } from "../types";
 import { exportSourceDocument, matchingExcerpt, queryTerms } from "./sourceWorkbench";
 import { readSecureVault, secureVaultEpoch, secureVaultTransaction, type PrivateItem } from "./secureSecretary";
 import { requirePublicRecord } from "./privateOutbound";
+import { imageIdeaText, readImageIdea } from "./imageIdeas";
 import { checkEvidence, FG17EvidenceRepository, investigationIdentifiers, referenceQuote, stampSource, type EvidenceRef, type EvidenceRepository, type EvidenceSource, type EvidenceState, type SourceStamp } from "./investigationEvidence";
 
 export type FindingKind = "fact" | "inference" | "conflict" | "gap";
@@ -46,6 +47,11 @@ function investigationOperation(artifact: Investigation, repository: EvidenceRep
       disposers.push(() => { table.hook("updating").unsubscribe(updating); table.hook("deleting").unsubscribe(changed); table.hook("creating").unsubscribe(creating); });
     }
     const lock = () => { revoked = true; };
+    // Image originals are part of citation authority. Conservatively revoke
+    // local in-flight operations on attachment writes, including restoration.
+    const attachmentChange = () => { revoked = true; };
+    db.attachments.hook("updating", attachmentChange); db.attachments.hook("deleting", attachmentChange); db.attachments.hook("creating", attachmentChange);
+    disposers.push(() => { db.attachments.hook("updating").unsubscribe(attachmentChange); db.attachments.hook("deleting").unsubscribe(attachmentChange); db.attachments.hook("creating").unsubscribe(attachmentChange); });
     // Private inputs also depend on the native vault generation. Unrelated
     // private-vault writes may require an explicit retry rather than risk reuse.
     const vaultChange = () => { if (investigationPrivate(artifact)) revoked = true; };
@@ -236,6 +242,8 @@ export async function confirmInvestigationTask(preview: InvestigationTaskPreview
 }
 
 export async function publishInvestigationRelation(artifact: Investigation, relationId: string, repository: EvidenceRepository) {
+  const operation = investigationOperation(artifact, repository);
+  try {
   await assertInvestigationCurrent(artifact, repository);
   if (repository.scope !== "local" || investigationPrivate(artifact)) throw new Error("investigation-public-graph-denied");
   const relation = artifact.relations.find(item => item.id === relationId); if (!relation || relation.decision !== "accepted") throw new Error("investigation-relation-acceptance-required");
@@ -243,16 +251,21 @@ export async function publishInvestigationRelation(artifact: Investigation, rela
   if (endpoints.some(endpoint => !endpoint)) throw new Error("investigation-public-graph-denied");
   const originals = await Promise.all(artifact.inputSources.map(ref => repository.resolve(ref.key)));
   for (let index = 0; index < originals.length; index++) if (!originals[index] || (await stampSource(originals[index]!)).fingerprint !== artifact.inputSources[index].fingerprint) throw new Error("investigation-source-changed");
-  await db.transaction("rw", db.cards, db.fragments, db.brainEdges, async () => {
+  await operation.revalidate();
+  await db.transaction("rw", db.cards, db.fragments, db.attachments, db.brainEdges, async () => {
     for (let index = 0; index < artifact.inputSources.length; index++) {
       const stamp = artifact.inputSources[index]; const endpoint = /^(card|fragment):(.+)$/.exec(stamp.key);
       if (!endpoint) throw new Error("investigation-public-graph-denied");
       const record = endpoint[1] === "card" ? await db.cards.get(endpoint[2]) : await db.fragments.get(endpoint[2]);
       if (!record || "state" in record && record.state === "trash") throw new Error("investigation-source-changed");
       requirePublicRecord("sync", record);
-      if (record.updatedAt !== stamp.updatedAt || ("plainText" in record ? record.plainText : record.text) !== originals[index]?.text || ("title" in record ? record.title : record.text.split("\n")[0].slice(0, 80)) !== stamp.title) throw new Error("investigation-source-changed");
+      const image = "properties" in record ? readImageIdea(record) : null;
+      if (image && !await db.attachments.get(image.attachmentId)) throw new Error("image-original-missing");
+      if (record.updatedAt !== stamp.updatedAt || (image ? imageIdeaText(image, false) : "plainText" in record ? record.plainText : record.text) !== originals[index]?.text || ("title" in record ? record.title : record.text.split("\n")[0].slice(0, 80)) !== stamp.title) throw new Error("investigation-source-changed");
     }
     const edge: BrainEdgeRecord = { id: relation.id, sourceType: endpoints[0]![1] as "card" | "fragment", sourceId: endpoints[0]![2], targetType: endpoints[1]![1] as "card" | "fragment", targetId: endpoints[1]![2], origin: "manual", reason: relation.reason, relationType: relation.kind === "conflict" ? "contrast" : relation.kind === "possible-factor" ? "possible_influence" : "shared_context", evidence: relation.evidence.map(ref => ref.quote), evidenceRefs: relation.evidence, createdAt: artifact.createdAt };
+    operation.assertCurrent();
     await db.brainEdges.put(edge);
   });
+  } finally { operation.dispose(); }
 }

@@ -112,6 +112,8 @@ contextBridge.exposeInMainWorld("chengjing", {
     open: (options) => ipcRenderer.invoke("file:open", options),
   },
   attachments: {
+    ocrStatus: () => ipcRenderer.invoke("image:ocr-status"),
+    recognizeImage: (request) => ipcRenderer.invoke("image:ocr", request),
     importPath: (request) => ipcRenderer.invoke("attachment:import-path", request),
     importData: (request) => ipcRenderer.invoke("attachment:import-data", request),
     remove: (relativePath) => ipcRenderer.invoke("attachment:remove", { relativePath }),

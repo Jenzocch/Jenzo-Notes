@@ -4,6 +4,7 @@ import { isMaterializedCard } from "./journalVisibility";
 import { requirePublicRecord } from "./privateOutbound";
 import { listPrivateItems, secureVaultEpoch, secureVaultStatus } from "./secureSecretary";
 import { matchingExcerpt, queryTerms, searchNoteSources } from "./sourceWorkbench";
+import { verifiedImageEvidence } from "./imageIdeas";
 
 export type EvidencePrivacy = "public" | "private";
 export interface SourceStamp {
@@ -63,7 +64,7 @@ export const localEvidenceRepository: EvidenceRepository = {
     const privacy = recordPrivacy(record);
     if (privacy === "private" && (await secureVaultStatus()).state !== "unlocked") throw new Error("evidence-source-locked");
     if (privacy === "private" && epoch !== secureVaultEpoch()) throw new Error("evidence-source-locked");
-    return { key, scope: "local", title: "title" in record ? record.title : record.text.split("\n")[0].slice(0, 80), text: "plainText" in record ? record.plainText : record.text, updatedAt: record.updatedAt, privacy };
+    return { key, scope: "local", title: "title" in record ? record.title : record.text.split("\n")[0].slice(0, 80), text: "plainText" in record ? await verifiedImageEvidence(record) : record.text, updatedAt: record.updatedAt, privacy };
   },
   async search(query, language) { return (await searchNoteSources(query, language)).map(source => source.key); },
 };

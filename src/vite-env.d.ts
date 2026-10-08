@@ -126,6 +126,8 @@ interface Window {
       }) => Promise<{ canceled: boolean; files: Array<{ name: string; path: string; data: string }> }>;
     };
     attachments: {
+      ocrStatus?: () => Promise<{ languages: string[]; engine: string }>;
+      recognizeImage?: (request: { data: string; mime: string; language: string }) => Promise<{ text: string; language: string; engine: string }>;
       importPath: (request: { id?: string; sourcePath: string; name: string; mime: string; createdAt?: number }) => Promise<import("./types").AttachmentRecord>;
       importData: (request: { id?: string; data: string; name: string; mime: string; createdAt?: number }) => Promise<import("./types").AttachmentRecord>;
       remove: (relativePath: string) => Promise<{ removed: boolean }>;
