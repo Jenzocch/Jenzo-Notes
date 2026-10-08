@@ -6,6 +6,7 @@ require(distributionChannel in listOf("direct", "play")) { "Unknown distribution
 android {
     namespace = "tw.techtarian.chengjing"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
     defaultConfig {
         applicationId = "tw.techtarian.chengjing"
         minSdk = 28

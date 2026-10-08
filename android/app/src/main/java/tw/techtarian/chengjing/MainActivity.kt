@@ -25,6 +25,10 @@ import java.util.concurrent.Executors
 class MainActivity : ComponentActivity() {
     private lateinit var web: WebView
     private val services by lazy { NativeServices(serviceContext) }
+    private val secretaryVault by lazy { SecretaryVault.get(serviceContext, qaIsolation) }
+    private val secretarySpeech by lazy { SecretarySpeech(this, { secretaryForeground && secretaryVault.status().optString("state") == "unlocked" }, { emit("secretary-speech", it) }) }
+    private var secretaryForeground = false
+    private var secretaryDocumentEpoch = 0
     private var qaIsolation = false
     private lateinit var serviceContext: android.content.Context
     private var launchSurface: LaunchSurface? = null
@@ -98,6 +102,7 @@ class MainActivity : ComponentActivity() {
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         val assets = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this)).build()
         web.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) { lockPrivateSession() }
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 if (request.url.host == "appassets.androidplatform.net" && request.url.path?.startsWith("/attachments/") == true) return services.attachmentResponse(request.url.lastPathSegment ?: "")
                 return assets.shouldInterceptRequest(request.url)
@@ -107,7 +112,10 @@ class MainActivity : ComponentActivity() {
                 if (request.isForMainFrame && request.url.scheme in listOf("https", "http")) startActivity(Intent(Intent.ACTION_VIEW, request.url))
                 return true
             }
-            override fun onPageFinished(view: WebView, url: String) { emit("resume", JSONObject()) }
+            override fun onPageFinished(view: WebView, url: String) {
+                secretaryVault.setActive(secretaryForeground && SecretaryBridgePolicy.trustedDocument(url))
+                emit("resume", JSONObject())
+            }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean { recreate(); return true }
         }
         web.webChromeClient = object : WebChromeClient() {
@@ -120,20 +128,30 @@ class MainActivity : ComponentActivity() {
         }
         check(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) { "Please update Android System WebView" }
         WebViewCompat.addWebMessageListener(web, "ChengJingNative", setOf("https://appassets.androidplatform.net")) { _, message, origin, mainFrame, _ ->
-            if (!mainFrame || origin.host != "appassets.androidplatform.net") return@addWebMessageListener
+            if (!mainFrame || !SecretaryBridgePolicy.trustedOrigin(origin.toString()) || !SecretaryBridgePolicy.trustedDocument(web.url ?: "")) return@addWebMessageListener
             try {
                 val request = JSONObject(message.data ?: "{}")
                 val id = request.getString("id")
                 val args = request.optJSONObject("args") ?: JSONObject()
+                val privateRequest = request.getString("method").startsWith("secretary.")
+                val documentEpoch = secretaryDocumentEpoch
                 val reply: (Any?, String?) -> Unit = { value, error ->
                     val envelope = JSONObject().put("id", id).put("value", value ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL)
-                    runOnUiThread { web.evaluateJavascript("window.__chengjingNativeReply?.($envelope)", null) }
+                    runOnUiThread {
+                        val safeEnvelope = if (privateRequest && documentEpoch != secretaryDocumentEpoch)
+                            JSONObject().put("id", id).put("value", JSONObject.NULL).put("error", "vault-session-changed") else envelope
+                        if (::web.isInitialized && SecretaryBridgePolicy.trustedDocument(web.url ?: "")) web.evaluateJavascript("window.__chengjingNativeReply?.($safeEnvelope)", null)
+                    }
                 }
                 if(qaIsolation&&request.getString("method").substringBefore('.') in listOf("google","cloud","sync")) {
                     reply(null,"Cloud access is disabled in the isolated UI test workspace")
                     return@addWebMessageListener
                 }
                 when (request.getString("method")) {
+                    "secretary.speech.status" -> reply(secretarySpeech.status(), null)
+                    "secretary.speech.start" -> secretarySpeech.start(args.getString("sessionId"), args.getString("language"), reply)
+                    "secretary.speech.stop" -> { secretarySpeech.stop(args.getString("sessionId")); reply(JSONObject().put("stopped", true), null) }
+                    "secretary.vault.lock" -> { secretarySpeech.stop(); executor.execute { reply(secretaryVault.call("secretary.vault.lock", args), null); emit("vault-state", secretaryVault.status()) } }
                     "app.ready" -> runOnUiThread {
                         val cover=launchSurface;launchSurface=null
                         if(cover!=null)cover.animate().alpha(0f).setDuration(if(android.animation.ValueAnimator.areAnimatorsEnabled())120 else 0).withEndAction{(cover.parent as? android.view.ViewGroup)?.removeView(cover)}.start()
@@ -180,7 +198,12 @@ class MainActivity : ComponentActivity() {
                     "google.connect" -> runOnUiThread { authorizeGoogle(reply) }
                     "google.refresh" -> runOnUiThread { authorizeGoogle(reply, false) }
                     "app.close" -> runOnUiThread { reply(JSONObject().put("closed", true), null); moveTaskToBack(true) }
-                    else -> executor.execute { try { reply(services.call(request.getString("method"), args), null) } catch (error: Exception) { reply(null, error.message ?: "Operation failed") } }
+                    else -> executor.execute {
+                        try {
+                            val method = request.getString("method")
+                            reply(if (privateRequest) secretaryVault.call(method, args) else services.call(method, args), null)
+                        } catch (error: Exception) { reply(null, error.message ?: "Operation failed") }
+                    }
                 }
             } catch (_: Exception) { /* Malformed messages have no native authority. */ }
         }
@@ -221,8 +244,15 @@ class MainActivity : ComponentActivity() {
         executor.execute { services.enqueueShare(text, uris); emit("resume", JSONObject()) }
     }
     fun emit(name: String, data: JSONObject) { runOnUiThread { if (::web.isInitialized) web.evaluateJavascript("window.dispatchEvent(new CustomEvent('chengjing:android-$name',{detail:$data}))", null) } }
-    override fun onPause() { if (::web.isInitialized) emit("pause", JSONObject()); super.onPause() }
-    override fun onResume() { super.onResume(); if (::web.isInitialized) emit("resume", JSONObject()) }
+    private fun lockPrivateSession() {
+        secretaryDocumentEpoch++
+        secretarySpeech.stop()
+        secretaryVault.setActive(false)
+        emit("vault-state", secretaryVault.status())
+    }
+    override fun onPause() { secretaryForeground = false; lockPrivateSession(); if (::web.isInitialized) emit("pause", JSONObject()); super.onPause() }
+    override fun onResume() { super.onResume(); secretaryForeground = true; if (::web.isInitialized) { secretaryVault.setActive(SecretaryBridgePolicy.trustedDocument(web.url ?: "")); emit("resume", JSONObject()) } }
+    override fun onDestroy() { lockPrivateSession(); executor.shutdown(); if (::web.isInitialized) web.destroy(); super.onDestroy() }
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         emit("system-theme",JSONObject().put("dark",android.content.res.Resources.getSystem().configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK==android.content.res.Configuration.UI_MODE_NIGHT_YES))
