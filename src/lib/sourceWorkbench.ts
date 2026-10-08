@@ -77,7 +77,7 @@ export async function sourcesStillCurrent(sources: NoteSource[]) {
     if (source.type !== "card") continue;
     const card = await db.cards.get(source.id);
     if (!card) return false;
-    try { if (readImageIdea(card) && (card.updatedAt !== source.updatedAt || !(await verifiedImageEvidence(card)).includes(source.excerpt))) return false; } catch { return false; }
+    try { requirePublicRecord("share", card); if (readImageIdea(card) && (card.updatedAt !== source.updatedAt || !(await verifiedImageEvidence(card)).includes(source.excerpt))) return false; } catch { return false; }
   }
   const privateItems = sources.some(source => source.type === "private") ? await listPrivateItems() : [];
   const valid = await db.transaction("r", db.cards, db.fragments, async () => {
@@ -91,6 +91,29 @@ export async function sourcesStillCurrent(sources: NoteSource[]) {
     return true;
   });
   return valid && epoch === secureVaultEpoch();
+}
+
+/** Guard the original workbench's retained sources through consent and every
+ * vault read/CAS retry. Attempted edits revoke even if subsequently restored. */
+export function noteSourceOperation(input: NoteSource[]) {
+  const sources = structuredClone(input); const epoch = secureVaultEpoch(); let revoked = false;
+  const keys = new Set(sources.map(source => source.key)); const dispose: Array<() => void> = [];
+  for (const [prefix, table] of [["card", db.cards], ["fragment", db.fragments]] as const) {
+    const changed = (key: unknown) => { if (keys.has(`${prefix}:${String(key)}`)) revoked = true; };
+    const updating = (_changes: unknown, key: unknown) => changed(key);
+    const creating = (key: unknown, record: { id?: string }) => changed(key ?? record.id);
+    table.hook("updating", updating); table.hook("deleting", changed); table.hook("creating", creating);
+    dispose.push(() => { table.hook("updating").unsubscribe(updating); table.hook("deleting").unsubscribe(changed); table.hook("creating").unsubscribe(creating); });
+  }
+  const attachmentChange = () => { if (sources.some(source => source.type === "card")) revoked = true; };
+  db.attachments.hook("updating", attachmentChange); db.attachments.hook("deleting", attachmentChange); db.attachments.hook("creating", attachmentChange);
+  dispose.push(() => { db.attachments.hook("updating").unsubscribe(attachmentChange); db.attachments.hook("deleting").unsubscribe(attachmentChange); db.attachments.hook("creating").unsubscribe(attachmentChange); });
+  const lock = () => { revoked = true; };
+  const vaultChange = () => { if (sources.some(source => source.type === "private")) revoked = true; };
+  window.addEventListener("chengjing:secure-vault-locking", lock); window.addEventListener("chengjing:secure-vault-changed", vaultChange);
+  dispose.push(() => { window.removeEventListener("chengjing:secure-vault-locking", lock); window.removeEventListener("chengjing:secure-vault-changed", vaultChange); });
+  const assertCurrent = () => { if (revoked || epoch !== secureVaultEpoch()) throw new Error("source-document-invalidated; search and compose again"); };
+  return { assertCurrent, async revalidate() { assertCurrent(); if (!await sourcesStillCurrent(sources)) throw new Error("source-document-invalidated; search and compose again"); assertCurrent(); }, dispose() { dispose.forEach(callback => callback()); } };
 }
 
 export function sourceContext(sources: NoteSource[], engine = "remote") {
