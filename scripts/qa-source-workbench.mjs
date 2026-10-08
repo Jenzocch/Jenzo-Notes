@@ -9,6 +9,7 @@ try {
   await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await call("Page.addScriptToEvaluateOnNewDocument", { source: qaPrivateVaultSource + `
     window.__sourceQA={requests:[],exports:[],invalid:false};
+    window.confirm=()=>true; // Explicit synthetic export consent; never real data.
     window.chengjing={secretaryVault:window.__qaPrivateVaultBridge,platform:screen.width<600?'android':'win32',onShortcut:()=>()=>{},files:{save:async p=>{window.__sourceQA.exports.push(p);return {canceled:false}}},ai:{keyStatus:async()=>({configured:true,encrypted:true}),listModels:async()=>[],openRouterChat:async p=>{
       window.__sourceQA.requests.push(p);
       const content=p.messages.at(-1).content;
@@ -42,7 +43,7 @@ try {
     await click(button("Create excerpt document"));
     await wait("document.querySelector('.source-document')");
     await click(button("AI compose draft"));
-    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('Cloud AI paused')");
+    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('private-outbound-denied:remote-ai')");
     const validated = await evaluate(`(async()=>{ const {parseSourcedDocument,searchNoteSources}=await import('/src/lib/sourceWorkbench.ts');const sources=await searchNoteSources(${JSON.stringify(keyword)},'en'); return parseSourcedDocument(JSON.stringify({title:'Voyage brief',sections:[{heading:'Comparison',text:'Mock comparison for manual review.',evidence:sources.map(s=>({key:s.key,quote:s.excerpt.slice(-40)}))}]}),sources).text; })()`);
     await fill(".source-document", validated);
     await fill(".source-document", "# Reviewed voyage brief\n\nTiming remains a question. Check both sources.");
@@ -57,12 +58,12 @@ try {
     if (saved !== 1) throw new Error("Document was not saved");
     await evaluate("window.__sourceQA.invalid=true");
     await click(button("AI compose draft"));
-    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('Cloud AI paused')");
+    await wait("document.querySelector('.source-workbench [role=status]')?.textContent.includes('private-outbound-denied:remote-ai')");
     if (!await evaluate("document.querySelector('.source-document').value.includes('Reviewed voyage brief')")) throw new Error("Invalid evidence replaced reviewed draft");
     const overflow = await evaluate("document.documentElement.scrollWidth > innerWidth+1");
     if (overflow) throw new Error(`${mode} horizontal overflow`);
     await screenshot(`${mode}.png`);
-    if (await evaluate("window.__sourceQA.requests.length")) throw new Error("Cloud budget gate allowed a request");
+    if (await evaluate("window.__sourceQA.requests.length")) throw new Error("Private outbound policy allowed a remote request");
     const intact = await evaluate(`(async()=>{const {db}=await import('/src/db.ts');const card=await db.cards.get(${JSON.stringify(fixtureId)});return card.updatedAt===1&&card.plainText.startsWith('x'.repeat(20000));})()`);
     if (!intact) throw new Error("Original source was modified");
     await click(button("Save encrypted draft")); await wait("document.querySelector('.source-workbench [role=status]')?.textContent==='Encrypted draft saved'");

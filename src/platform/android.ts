@@ -1,5 +1,6 @@
 import type { AppLanguage, ThemeMode } from "../types";
 import { useAppStore } from "../store";
+import { createAndroidPrivateAdapters } from "../lib/androidSecretary";
 
 declare global {
   interface Window {
@@ -41,6 +42,7 @@ export async function initializeAndroid() {
   };
   window.chengjing = {
     platform: "android",
+    ...createAndroidPrivateAdapters(androidCall, subscribe),
     sync: {
       stage: (packet) => androidCall("sync.stage", { packet }),
       uploadAsset: (asset) => androidCall("sync.uploadAsset", asset), downloadAsset: (asset) => androidCall("sync.downloadAsset", asset),

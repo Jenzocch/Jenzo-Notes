@@ -92,7 +92,7 @@ export function SourceWorkbench() {
       let text = excerptDocument(goal.trim(), selected, language);
       if (ai) {
         const state = useAppStore.getState();
-        const result = await runAI({ engine: state.aiEngine, model: state.aiEngine === "custom-provider" ? state.customProviderModel : state.customModel.trim() || state.openRouterModel, prompt: documentPrompt(goal.trim(), language), context: sourceContext(selected), temperature: 0.1 });
+        const result = await runAI({ engine: state.aiEngine, sources: selected, model: state.aiEngine === "custom-provider" ? state.customProviderModel : state.customModel.trim() || state.openRouterModel, prompt: documentPrompt(goal.trim(), language), context: sourceContext(selected, state.aiEngine), temperature: 0.1 });
         if (!current()) return;
         text = parseSourcedDocument(result.text, selected).text;
         if (!await sourcesStillCurrent(selected)) throw new Error(zh ? "整理期間來源已變更，請重新搜尋。" : "Sources changed while composing. Search again.");
@@ -108,7 +108,7 @@ export function SourceWorkbench() {
     const current = session();
     setBusy(true); setError("");
     try {
-      if (exportFile) await exportSourceDocument(finalText);
+      if (exportFile) await exportSourceDocument(finalText, language);
       else {
         await savePrivateItem("note", finalText);
         if (!current()) return;

@@ -2,6 +2,7 @@ import { db } from "../db";
 import type { AppLanguage } from "../types";
 import { isMaterializedCard } from "./journalVisibility";
 import { listPrivateItems, secureVaultEpoch, secureVaultStatus } from "./secureSecretary";
+import { requireAISources } from "./privateOutbound";
 
 export interface NoteSource {
   key: string;
@@ -40,7 +41,7 @@ export function matchingExcerpt(text: string, terms: string[], budget = 1600) {
 /** Scan all candidates using cursors; keep only the best bounded results in memory.
  * This deliberately includes old records and notes beyond their search-index limit.
  */
-export async function searchNoteSources(query: string, _language: AppLanguage, limit = 24): Promise<NoteSource[]> {
+export async function searchNoteSources(query: string, _language: AppLanguage, limit = 24, includePrivate = true): Promise<NoteSource[]> {
   const terms = queryTerms(query);
   if (!terms.length || limit <= 0) return [];
   const ranked: Array<{ source: NoteSource; score: number }> = [];
@@ -61,7 +62,7 @@ export async function searchNoteSources(query: string, _language: AppLanguage, l
     });
     await db.fragments.each(fragment => collect({ key: `fragment:${fragment.id}`, type: "fragment", id: fragment.id, title: fragment.text.split("\n")[0].slice(0, 80), updatedAt: fragment.updatedAt }, fragment.text));
   });
-  if ((await secureVaultStatus()).state === "unlocked") {
+  if (includePrivate && (await secureVaultStatus()).state === "unlocked") {
     for (const item of await listPrivateItems()) collect({ key: `private:${item.id}`, type: "private", id: item.id, title: item.title, updatedAt: item.updatedAt }, item.plainText);
   }
   return ranked.map(entry => entry.source);
@@ -83,7 +84,8 @@ export async function sourcesStillCurrent(sources: NoteSource[]) {
   return valid && epoch === secureVaultEpoch();
 }
 
-export function sourceContext(sources: NoteSource[]) {
+export function sourceContext(sources: NoteSource[], engine = "remote") {
+  requireAISources(engine, sources);
   return JSON.stringify(sources.map(({ key, title, excerpt, sourceUrl }) => ({ key, title, excerpt, sourceUrl })));
 }
 
@@ -142,7 +144,9 @@ export function safeDocumentExport(text: string) {
   const fence = "~".repeat(longest + 1);
   return `${fence}text\n${text}\n${fence}\n`;
 }
-export async function exportSourceDocument(text: string) {
+export async function exportSourceDocument(text: string, language: AppLanguage = "en") {
+  // One-time manual plaintext disclosure; a selected folder may be cloud-backed.
+  if (!window.confirm(typeof language === "string" && language.startsWith("zh") ? "匯出這份私密草稿的明文副本？所選位置可能同步至雲端。這次匯出不會授權未來的遠端 AI、MCP、同步或分享。" : "Export a plaintext copy of this private draft? The selected destination may sync to a cloud service. This does not permit future remote AI, MCP, sync or sharing.")) return { canceled: true };
   const data = safeDocumentExport(text);
   const name = `notes-document-${new Date().toISOString().slice(0, 10)}.md`;
   if (window.chengjing) return window.chengjing.files.save({ title: "Export safe text document", defaultPath: name, filters: [{ name: "Markdown (inert text)", extensions: ["md"] }], data });
