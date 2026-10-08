@@ -1733,3 +1733,12 @@ html[data-quick-capture="true"], html[data-quick-capture="true"] body, html[data
 .secretary-panel .secretary-sensitive > label, .secretary-sensitive details label { display: grid; }
 .secure-vault-controls { border: 1px solid var(--border); padding: 10px; border-radius: 8px; margin-block: 10px; }
 .secretary-sensitive:disabled { opacity: .65; }
+.evidence-investigation { min-width: 0; }
+.evidence-investigation article { padding: 12px; margin: 10px 0; border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+.evidence-investigation textarea { width: 100%; box-sizing: border-box; }
+.evidence-investigation small, .evidence-references small { display: block; overflow-wrap: anywhere; }
+.evidence-references blockquote { margin: 8px 0; padding: 8px; border-left: 3px solid currentColor; white-space: pre-wrap; overflow-wrap: anywhere; }
+.evidence-references pre, .investigation-task-preview pre { max-height: 320px; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
+.investigation-source-status { overflow-wrap: anywhere; }
+.investigation-source-status [data-source-state="changed"], .investigation-source-status [data-source-state="missing"] { font-weight: bold; }
+.brain-edge-menu .evidence-references { max-height: 320px; overflow: auto; }

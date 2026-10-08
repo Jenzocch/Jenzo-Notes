@@ -256,6 +256,7 @@ export interface BrainEdgeRecord {
   confidence?: number;
   relationType?: BrainRelationType;
   evidence?: string[];
+  evidenceRefs?: import("./lib/investigationEvidence").EvidenceRef[];
   temporalDistanceDays?: number;
   createdAt: number;
 }

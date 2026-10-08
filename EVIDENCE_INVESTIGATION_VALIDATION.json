@@ -1,0 +1,84 @@
+{
+  "frontend": {
+    "passed": 210,
+    "files": 51
+  },
+  "node": {
+    "skipReason": "POSIX permissions on Windows",
+    "passed": 82,
+    "skipped": 1
+  },
+  "typecheck": "pass",
+  "build": "pass",
+  "externalAICalls": 0,
+  "investigation": {
+    "report": [
+      {
+        "mode": "desktop",
+        "width": 1440,
+        "height": 1000,
+        "syntheticCase": true,
+        "consent": true,
+        "invalidated": true,
+        "localFlow": {
+          "encryptedDraft": true,
+          "privateTask": true,
+          "metadata": true,
+          "bothEnds": 2
+        }
+      },
+      {
+        "mode": "mobile",
+        "width": 390,
+        "height": 844,
+        "syntheticCase": true,
+        "consent": true,
+        "invalidated": true,
+        "localFlow": {
+          "encryptedDraft": true,
+          "privateTask": true,
+          "metadata": true,
+          "bothEnds": 2
+        }
+      }
+    ],
+    "errors": []
+  },
+  "existingWorkbench": {
+    "report": [
+      {
+        "mode": "desktop",
+        "width": 1440,
+        "encryptedCapture": true,
+        "oldLongNoteRetrieved": true,
+        "mockDocumentValidated": true,
+        "cloudAIBlocked": true,
+        "edited": true,
+        "inertTextExported": true,
+        "privateNoteSaved": true,
+        "encryptedDraftRetained": true,
+        "noPlaintextDraft": true,
+        "horizontalOverflow": false,
+        "vaultBoundary": "MOCK; real Windows crypto verified separately"
+      },
+      {
+        "mode": "mobile",
+        "width": 390,
+        "encryptedCapture": true,
+        "oldLongNoteRetrieved": true,
+        "mockDocumentValidated": true,
+        "cloudAIBlocked": true,
+        "edited": true,
+        "inertTextExported": true,
+        "privateNoteSaved": true,
+        "encryptedDraftRetained": true,
+        "noPlaintextDraft": true,
+        "horizontalOverflow": false,
+        "vaultBoundary": "MOCK; real Windows crypto verified separately"
+      }
+    ],
+    "errors": [],
+    "realAICalls": 0
+  },
+  "nativeDeviceAcceptance": "not executed; release gates remain open"
+}

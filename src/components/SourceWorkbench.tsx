@@ -5,6 +5,7 @@ import { useAppStore } from "../store";
 import { runAI } from "../lib/ai";
 import { useSecureVault } from "../hooks/useSecureVault";
 import { SecureVaultControls } from "./SecureVaultControls";
+import { EvidenceInvestigation } from "./EvidenceInvestigation";
 import { listPrivateItems, readSecureVault, savePrivateItem, secureVaultEpoch, secureVaultTransaction } from "../lib/secureSecretary";
 import { documentPrompt, excerptDocument, exportSourceDocument, parseSourcedDocument, searchNoteSources, sourceAppendix, sourceContext, sourcesStillCurrent, type NoteSource } from "../lib/sourceWorkbench";
 
@@ -132,6 +133,7 @@ export function SourceWorkbench() {
   return <details className="source-workbench">
     <summary>{zh ? "來源工作台 · 搜尋到文件" : "Source workbench · Search to document"}</summary>
     <SecureVaultControls />
+    <EvidenceInvestigation />
     <p>{zh ? "草稿只在記憶體；請明確儲存加密草稿。導出是防止 HTML／遠端圖片啟動的純文字 Markdown。舊資料不會自動遷移。" : "Drafts stay in memory until explicitly saved encrypted. Export is inert text Markdown, with no active HTML or remote images. Old data is not automatically migrated."}</p>
     <button disabled={busy || vaultStatus.state !== "unlocked" || !draft.trim()} onClick={() => void saveEncryptedDraft()}>{zh ? "儲存加密草稿" : "Save encrypted draft"}</button>
     <fieldset disabled={busy || vaultStatus.state !== "unlocked"}>
