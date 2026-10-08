@@ -10,6 +10,8 @@ At native bridge ingress, private requests capture an opaque generation ticket. 
 
 The production Java guard has 43 deterministic host race checks, including occupied workers, stale unlock/commit/schedule/restore, lifecycle revocation, fresh unlock and authorization/mutation serialization. Android instrumentation adds file/revision assertions and is compiled only. JVM tests and source wiring checks do not prove Android device lifecycle behavior. R6 requires independent review of the new commit before being considered closed.
 
+R6 review head: `bf37929a1ce2c4fa7791f51790d54532efa3307c`. Full frontend 180 tests and Node 82 tests passed (one Windows POSIX-only skip); typecheck, full offline APK and Android lint passed. Both exact-head [push CI](https://github.com/Jenzocch/Jenzo-Notes/actions/runs/37725662310) and [PR CI](https://github.com/Jenzocch/Jenzo-Notes/actions/runs/37725666461) passed on Windows/Linux. The following private-outbound slice is a separate commit; see the release-gate record for its narrower evidence and remaining review gates.
+
 Punctual audible alarms remain a release gate: current inexact notification delivery does not meet that requirement. See [release gates](SECRETARY_RELEASE_GATES.md). No exact-alarm permission has been added or granted.
 
 The existing Kotlin/WebView app now exposes PR2's fixed private-vault bridge to the packaged HTTPS top-level document. Legacy notes, credentials (`chengjing-credentials-v1`), editing, sync and backups are untouched; no migration or private-data upload occurs. Quick private capture, searchable sources and editable/exportable documents use the existing React flow once the new vault is unlocked.

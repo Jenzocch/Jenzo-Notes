@@ -1,4 +1,5 @@
 import type { BrainContentType } from "../types";
+import { requirePublicSources, type SourcePrivacy } from "./privateOutbound";
 
 export const COMMUNITY_ENDPOINT = "https://chengjing-wish-pool.coyoter.workers.dev";
 export const COMMUNITY_IDENTITY_STORAGE_KEY = "chengjing-community-identity-v1";
@@ -190,8 +191,10 @@ export const communityApi = {
   neuron(id: string, identity: CommunityIdentity | null, cursor = ""): Promise<{ item: SharedNeuronDetail }> {
     return requestJson(`/v1/community/neurons/${encoded(id)}${cursor ? `?cursor=${encoded(cursor)}` : ""}`, {}, { identity });
   },
-  share(identity: CommunityIdentity, input: { sourceType: BrainContentType; title: string; body: string; intention: SharedIntention }): Promise<{ item: SharedNeuronDetail }> {
-    return requestJson("/v1/community/neurons", { method: "POST", body: JSON.stringify(input) }, { identity });
+  share(identity: CommunityIdentity, input: { sourceType: BrainContentType; title: string; body: string; intention: SharedIntention; sourceKey?: string; sources?: readonly SourcePrivacy[] }): Promise<{ item: SharedNeuronDetail }> {
+    requirePublicSources("share", [{ type: input.sourceType, key: input.sourceKey }, ...(input.sources || [])]);
+    const { sourceType, title, body, intention } = input;
+    return requestJson("/v1/community/neurons", { method: "POST", body: JSON.stringify({ sourceType, title, body, intention }) }, { identity });
   },
   updateNeuron(identity: CommunityIdentity, id: string, input: { title: string; body: string }): Promise<{ updated: true }> {
     return requestJson(`/v1/community/neurons/${encoded(id)}`, { method: "PATCH", body: JSON.stringify(input) }, { identity });

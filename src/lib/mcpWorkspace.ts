@@ -7,6 +7,7 @@ import { createKanbanBoard, createKanbanList, moveKanbanPlacement, placeCardOnKa
 import { searchQueryTerms } from "./searchIndex";
 import { includesQuery, searchRecords } from "./searchRecords";
 import { createTaskChild, dueDateInputToTimestamp, updateTaskEverywhere } from "./taskSync";
+import { requirePublicSources } from "./privateOutbound";
 
 export type McpWorkspaceTool =
   | "chengjing_status" | "chengjing_search" | "chengjing_get_item"
@@ -289,6 +290,9 @@ async function executeWrite(tool: McpWorkspaceTool, args: Record<string, unknown
 }
 
 export async function handleMcpWorkspaceRequest(request: McpWorkspaceRequest) {
+  // Vault records are not part of the legacy workspace. Reject explicit private
+  // identities before searching/reading/writing, including namespace spoofing.
+  requirePublicSources("mcp", [{ type: String(request.arguments.type || ""), key: String(request.arguments.id || "") }, ...(Array.isArray(request.arguments.types) ? request.arguments.types.map(type => ({ type: String(type) })) : [])]);
   if (request.tool === "chengjing_status") return workspaceStatus();
   if (request.tool === "chengjing_search") return workspaceSearch(request.arguments);
   if (request.tool === "chengjing_get_item") return getItem(request.arguments);

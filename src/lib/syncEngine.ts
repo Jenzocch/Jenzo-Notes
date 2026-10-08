@@ -2,6 +2,7 @@ import { db } from "../db";
 import { ignoreTransactionHistory } from "./historyTransactions";
 import { syncEnabled, remoteSyncTransactions, baselineSyncTransactions } from "./syncJournal";
 import { SYNC_TABLES, validateSyncPacket, mergeSyncRecord, materializedHead, type SyncPacket, type SyncRecord, type SyncOperation } from "./syncProtocol";
+import { requirePublicSources } from "./privateOutbound";
 
 export interface SyncTransport {
   stage?: (packet: SyncPacket) => Promise<unknown>;
@@ -21,6 +22,11 @@ export async function* pendingSyncPackets(): AsyncGenerator<SyncPacket> {
   for (let index = 0; index < keys.length; index += 500) {
     const operations: SyncOperation[] = (await db.table("syncOutbox").bulkGet(keys.slice(index, index + 500))).filter(Boolean);
     if (!operations.length) continue;
+    // Do not hand malformed/foreign vault operations to any staging transport.
+    for (const operation of operations) {
+      requirePublicSources("sync", [{ key: operation.key, type: String(operation.table) }]);
+      if (!(SYNC_TABLES as readonly string[]).includes(operation.table)) throw new Error("sync-table-not-allowed");
+    }
     const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(operations.map(op => op.id).sort().join("\n")));
     const id = `packet-${Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("")}`;
     yield { protocol: "chengjing-sync-v1", id, operations };

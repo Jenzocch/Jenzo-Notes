@@ -9,6 +9,7 @@ import { searchQueryTerms } from "./searchIndex";
 import { isMaterializedCard } from "./journalVisibility";
 import { searchNoteSources, sourceContext } from "./sourceWorkbench";
 import { requireCloudBudgetAuthorization } from "./secretaryBudget";
+import { requireAISources, type SourcePrivacy } from "./privateOutbound";
 
 function currentLanguage(): AppLanguage {
   return useAppStore.getState().language || "zh-TW";
@@ -65,7 +66,8 @@ export async function contextForBoard(boardId: string) {
 
 export async function buildSpaceContext(query: string) {
   const language = currentLanguage();
-  const sources = await searchNoteSources(query, language, 8);
+  // Legacy chat consumes strings without provenance: never include vault data.
+  const sources = await searchNoteSources(query, language, 8, false);
   return sources.length
     ? `${translate(language, "ai.localResults")}:\n${sourceContext(sources)}\nUse source keys when citing. These are partial keyword matches, not complete coverage or proof of a relationship. Do not invent facts.`
     : translate(language, "ai.noLocalResults");
@@ -76,6 +78,7 @@ export async function runAI(options: {
   model: string;
   prompt: string;
   context?: string;
+  sources?: readonly SourcePrivacy[];
   history?: AIMessage[];
   temperature?: number;
   maxTokens?: number;
@@ -84,6 +87,7 @@ export async function runAI(options: {
   onToken?: (text: string) => void;
   onProgress?: (progress: number, file: string) => void;
 }): Promise<AIResponse> {
+  requireAISources(options.engine, options.sources || []);
   if (options.engine !== "local-gemma") requireCloudBudgetAuthorization();
   const language = currentLanguage();
   const messages: AIMessage[] = [

@@ -554,6 +554,7 @@ export function SecondBrainView() {
     try {
       const result = await communityApi.share(communityIdentity, {
         sourceType: shareCandidate.type,
+        sourceKey: shareCandidate.key,
         title: shareCandidate.title,
         body: shareCandidate.text.trim() || shareCandidate.title,
         intention,
