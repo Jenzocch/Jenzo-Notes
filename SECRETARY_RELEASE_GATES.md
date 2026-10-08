@@ -27,6 +27,8 @@ This policy protects the implemented provenance-bearing flows and separate vault
 
 ### R7/R8 follow-up — new exact head requires review
 
+Independent review of `4acc06f` passed the original R7/R8 counterexamples within these controlled flows. Its new R9 regression is addressed separately: `CardRecord.properties` is an opaque user-custom field bag, so a custom `properties.sources` string/array does not declare provenance. Direct application source markers remain checked; new retained metadata has the explicit `secretaryProvenance: { version: 1, sources: [...] }` container, with version/list validation and nested private refusal. Custom properties inside that application-owned container are not a bypass. Three new regressions cover ordinary custom fields, old queued operations after a later edit, and private/unknown namespace refusal. No real queue is edited, cleared or migrated; old legitimate queued values pass the corrected validator unchanged. R9 requires review of its own exact head.
+
 The independent `6cfc617` review reproduced two caller mistakes with synthetic data: a locally serialized vault context reached mocked share HTTP when provenance was omitted; a public-table outbox value retaining private metadata still produced a sync packet. Passing `false` to the export helper also bypassed confirmation. These were helper counterexamples, not evidence of normal UI automatically disclosing notes.
 
 The follow-up closes those specific routes:

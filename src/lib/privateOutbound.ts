@@ -16,14 +16,16 @@ export function requireAISources(engine: string, sources: readonly SourcePrivacy
 
 /** Inspect our retained structured provenance, not note text. Absence on legacy
  * records is compatible; a declared source list must be valid and nonempty.
+ * Legacy `properties` is user data, not a provenance namespace. New retained
+ * metadata belongs in `secretaryProvenance: { version: 1, sources: [...] }`.
  * This cannot identify unmarked text manually copied into a legacy public record.
  */
 export function requirePublicRecord(destination: OutboundDestination, value: unknown) {
   let remaining = 100000;
-  const visit = (item: unknown, depth: number) => {
+  const visit = (item: unknown, depth: number, provenance = false) => {
     if (!item || typeof item !== "object") return;
     if (depth > 32 || --remaining < 0) throw new Error(`outbound-provenance-invalid:${destination}`);
-    if (Array.isArray(item)) { item.forEach(child => visit(child, depth + 1)); return; }
+    if (Array.isArray(item)) { item.forEach(child => visit(child, depth + 1, provenance)); return; }
     const record = item as Record<string, unknown>;
     requirePublicSources(destination, [{ private: record.private === true, type: typeof record.type === "string" ? record.type : undefined, key: typeof record.key === "string" ? record.key : undefined }]);
     if (Object.hasOwn(record, "sources")) {
@@ -32,7 +34,13 @@ export function requirePublicRecord(destination: OutboundDestination, value: unk
         if (!source || typeof source !== "object" || typeof source.key !== "string" || !/^(card|board|task|fragment|private):.+$/.test(source.key)) throw new Error(`outbound-provenance-invalid:${destination}`);
       }
     }
-    Object.values(record).forEach(child => visit(child, depth + 1));
+    for (const [name, child] of Object.entries(record)) {
+      if (name === "properties" && !provenance) continue;
+      if (name === "secretaryProvenance") {
+        if (!child || typeof child !== "object" || Array.isArray(child) || (child as Record<string, unknown>).version !== 1 || !Object.hasOwn(child, "sources")) throw new Error(`outbound-provenance-invalid:${destination}`);
+        visit(child, depth + 1, true);
+      } else visit(child, depth + 1, provenance);
+    }
   };
   visit(value, 0);
 }

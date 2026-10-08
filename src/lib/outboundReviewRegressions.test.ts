@@ -78,9 +78,9 @@ it("R7: all existing public graph types still publish exactly the displayed sour
 });
 
 it("R7: trusted source parsing rejects retained private and unknown declarations in legacy data", async () => {
-  await db.table("cards").put({ ...publicCard(), properties: { sources: [{ key: "private:synthetic" }] } });
+  await db.table("cards").put({ ...publicCard(), secretaryProvenance: { version: 1, sources: [{ key: "private:synthetic" }] } });
   await expect(resolvePublicShareSource("card:public")).rejects.toThrow("private-outbound-denied:share");
-  await db.table("cards").put({ ...publicCard(), properties: { sources: [] } });
+  await db.table("cards").put({ ...publicCard(), secretaryProvenance: { version: 1, sources: [] } });
   await expect(resolvePublicShareSource("card:public")).rejects.toThrow("outbound-provenance-invalid:share");
 });
 
@@ -89,7 +89,7 @@ it("R7: public-table sync operations retain and enforce nested private/unknown p
   for (const extra of [
     { private: true },
     { sources: [{ type: "private", key: "private:synthetic" }] },
-    { private: false, properties: { retained: { sources: [{ key: "private:synthetic" }] } } },
+    { private: false, secretaryProvenance: { version: 1, sources: [{ key: "card:public" }], retained: { sources: [{ key: "private:synthetic" }] } } },
     { sources: [] }, { sources: [{}] }, { sources: undefined },
   ]) {
     await db.table("syncOutbox").clear();
