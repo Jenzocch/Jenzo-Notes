@@ -25,6 +25,18 @@
   --windowed-collapsed-sidebar-width: max(104px, calc(var(--window-controls-safe-x) + 55px));
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+.image-idea-capture { display: grid; gap: 12px; min-width: 0; width: 100%; }
+.image-idea-capture label { display: grid; gap: 6px; min-width: 0; }
+.image-idea-capture input, .image-idea-capture textarea, .image-idea-capture select { width: 100%; max-width: 100%; box-sizing: border-box; }
+.image-idea-capture img { width: 100%; max-height: 320px; object-fit: contain; }
+.image-idea-capture pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; }
+.image-idea-capture .image-review-check { display: flex; align-items: start; }
+.image-review-check input { width: auto; flex-shrink: 0; }
+.unified-create-modal[data-image-mode] { display: flex; flex-direction: column; max-height: calc(100dvh - 60px); }
+.unified-create-modal[data-image-mode] .modal-header, .unified-create-modal[data-image-mode] .create-source-tabs, .unified-create-modal[data-image-mode] .modal-actions { flex-shrink: 0; }
+.unified-create-modal[data-image-mode] .create-card-fields { min-height: 0; overflow-y: auto; }
+.create-card-fields .image-idea-capture label:not(.image-review-check) { grid-template-columns: 1fr; align-items: start; }
+.image-idea-capture button { min-height: 42px; }
 
 :root[data-platform="win32"] {
   font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif;

@@ -37,14 +37,14 @@ export async function secureVaultTransaction<T>(change: (data: VaultData) => T, 
   throw new Error("vault-concurrent-change; retry explicitly");
 }
 export interface PrivateItem { id: string; kind: "note" | "task"; title: string; plainText: string; done: boolean; createdAt: number; updatedAt: number }
-export async function savePrivateItem(kind: "note" | "task", text: string, id = crypto.randomUUID()) {
+export async function savePrivateItem(kind: "note" | "task", text: string, id = crypto.randomUUID(), guard?: PersistenceGuard) {
   if (!text.trim() || text.length > 128000 || !/^[\w-]{8,100}$/.test(id)) throw new Error("Invalid private item");
   return secureVaultTransaction(data => {
     const key = `secretary-item:${id}`; const prior = data.entries[key] as PrivateItem | undefined;
     if (prior) { if (prior.kind !== kind || prior.plainText !== text.trim()) throw new Error("Private item ID already used"); return prior; }
     const now = Date.now(); const item: PrivateItem = { id, kind, title: text.trim().split("\n")[0].slice(0, 100), plainText: text.trim(), done: false, createdAt: now, updatedAt: now };
     data.entries[key] = item; return item;
-  });
+  }, guard);
 }
 export async function listPrivateItems() { return Object.entries((await readSecureVault()).data.entries).filter(([key]) => key.startsWith("secretary-item:")).map(([, value]) => value as PrivateItem); }
 export const privateVaultBridge = bridge;

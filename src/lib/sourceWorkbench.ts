@@ -2,7 +2,8 @@ import { db } from "../db";
 import type { AppLanguage } from "../types";
 import { isMaterializedCard } from "./journalVisibility";
 import { listPrivateItems, secureVaultEpoch, secureVaultStatus } from "./secureSecretary";
-import { requireAISources } from "./privateOutbound";
+import { requireAISources, requirePublicRecord } from "./privateOutbound";
+import { imageIdeaText, readImageIdea, verifiedImageEvidence } from "./imageIdeas";
 
 export interface NoteSource {
   key: string;
@@ -45,20 +46,22 @@ export async function searchNoteSources(query: string, _language: AppLanguage, l
   const terms = queryTerms(query);
   if (!terms.length || limit <= 0) return [];
   const ranked: Array<{ source: NoteSource; score: number }> = [];
-  const collect = (source: Omit<NoteSource, "matched" | "excerpt">, text: string) => {
+  const collect = (source: Omit<NoteSource, "matched" | "excerpt">, text: string, evidenceText = text) => {
     const title = normalize(source.title);
     const content = normalize(text);
     const matched = terms.filter(term => title.includes(term) || content.includes(term));
     if (!matched.length) return;
     const score = matched.reduce((sum, term) => sum + (title.includes(term) ? 4 : 1), 0);
-    ranked.push({ source: { ...source, matched, excerpt: matchingExcerpt(text, matched) }, score });
+    ranked.push({ source: { ...source, matched, excerpt: matchingExcerpt(evidenceText, matched) }, score });
     ranked.sort((a, b) => b.score - a.score || b.source.updatedAt - a.source.updatedAt || a.source.key.localeCompare(b.source.key));
     if (ranked.length > limit) ranked.pop();
   };
   await db.transaction("r", db.cards, db.fragments, async () => {
     await db.cards.each(card => {
       if (card.state === "trash" || !isMaterializedCard(card)) return;
-      collect({ key: `card:${card.id}`, type: "card", id: card.id, title: card.title, updatedAt: card.updatedAt, sourceUrl: card.sourceUrl }, card.plainText);
+      let evidenceText = card.plainText;
+      try { const image = readImageIdea(card); if (image) { requirePublicRecord("share", card); evidenceText = imageIdeaText(image, false); } } catch { return; }
+      collect({ key: `card:${card.id}`, type: "card", id: card.id, title: card.title, updatedAt: card.updatedAt, sourceUrl: card.sourceUrl }, card.plainText, evidenceText);
     });
     await db.fragments.each(fragment => collect({ key: `fragment:${fragment.id}`, type: "fragment", id: fragment.id, title: fragment.text.split("\n")[0].slice(0, 80), updatedAt: fragment.updatedAt }, fragment.text));
   });
@@ -70,6 +73,12 @@ export async function searchNoteSources(query: string, _language: AppLanguage, l
 
 export async function sourcesStillCurrent(sources: NoteSource[]) {
   const epoch = secureVaultEpoch();
+  for (const source of sources) {
+    if (source.type !== "card") continue;
+    const card = await db.cards.get(source.id);
+    if (!card) return false;
+    try { requirePublicRecord("share", card); if (readImageIdea(card) && (card.updatedAt !== source.updatedAt || !(await verifiedImageEvidence(card)).includes(source.excerpt))) return false; } catch { return false; }
+  }
   const privateItems = sources.some(source => source.type === "private") ? await listPrivateItems() : [];
   const valid = await db.transaction("r", db.cards, db.fragments, async () => {
     for (const source of sources) {
@@ -77,11 +86,34 @@ export async function sourcesStillCurrent(sources: NoteSource[]) {
       if (!record || record.updatedAt !== source.updatedAt) return false;
       if ("state" in record && record.state === "trash") return false;
       const text = "plainText" in record ? record.plainText : record.text;
-      if (!text.includes(source.excerpt)) return false;
+      if (!("properties" in record && readImageIdea(record) ? imageIdeaText(readImageIdea(record)!, false) : text).includes(source.excerpt)) return false;
     }
     return true;
   });
   return valid && epoch === secureVaultEpoch();
+}
+
+/** Guard the original workbench's retained sources through consent and every
+ * vault read/CAS retry. Attempted edits revoke even if subsequently restored. */
+export function noteSourceOperation(input: NoteSource[]) {
+  const sources = structuredClone(input); const epoch = secureVaultEpoch(); let revoked = false;
+  const keys = new Set(sources.map(source => source.key)); const dispose: Array<() => void> = [];
+  for (const [prefix, table] of [["card", db.cards], ["fragment", db.fragments]] as const) {
+    const changed = (key: unknown) => { if (keys.has(`${prefix}:${String(key)}`)) revoked = true; };
+    const updating = (_changes: unknown, key: unknown) => changed(key);
+    const creating = (key: unknown, record: { id?: string }) => changed(key ?? record.id);
+    table.hook("updating", updating); table.hook("deleting", changed); table.hook("creating", creating);
+    dispose.push(() => { table.hook("updating").unsubscribe(updating); table.hook("deleting").unsubscribe(changed); table.hook("creating").unsubscribe(creating); });
+  }
+  const attachmentChange = () => { if (sources.some(source => source.type === "card")) revoked = true; };
+  db.attachments.hook("updating", attachmentChange); db.attachments.hook("deleting", attachmentChange); db.attachments.hook("creating", attachmentChange);
+  dispose.push(() => { db.attachments.hook("updating").unsubscribe(attachmentChange); db.attachments.hook("deleting").unsubscribe(attachmentChange); db.attachments.hook("creating").unsubscribe(attachmentChange); });
+  const lock = () => { revoked = true; };
+  const vaultChange = () => { if (sources.some(source => source.type === "private")) revoked = true; };
+  window.addEventListener("chengjing:secure-vault-locking", lock); window.addEventListener("chengjing:secure-vault-changed", vaultChange);
+  dispose.push(() => { window.removeEventListener("chengjing:secure-vault-locking", lock); window.removeEventListener("chengjing:secure-vault-changed", vaultChange); });
+  const assertCurrent = () => { if (revoked || epoch !== secureVaultEpoch()) throw new Error("source-document-invalidated; search and compose again"); };
+  return { assertCurrent, async revalidate() { assertCurrent(); if (!await sourcesStillCurrent(sources)) throw new Error("source-document-invalidated; search and compose again"); assertCurrent(); }, dispose() { dispose.forEach(callback => callback()); } };
 }
 
 export function sourceContext(sources: NoteSource[], engine = "remote") {

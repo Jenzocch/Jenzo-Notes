@@ -1,0 +1,80 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {base,output,ws,errors,call,evaluate,wait,click as rawClick,fill,screenshot} from './qa-browser.mjs';
+const timeout = setTimeout(()=>{console.error('Image QA overall timeout');process.exit(1);},180000);
+const report = {screens:[], externalRequests:[], exceptions:errors, aiCalls:0, nativeDeviceAcceptance:false};
+ws.addEventListener('message',event=>{const message=JSON.parse(event.data);if(message.method==='Network.requestWillBeSent'){const url=message.params.request.url;if(/^https?:/.test(url)&&!['127.0.0.1','localhost'].includes(new URL(url).hostname))report.externalRequests.push(url);}});
+async function click(expression){await wait(`(${expression}) && !(${expression}).matches(':disabled')`);await evaluate(`(()=>{(${expression}).scrollIntoView({block:'center'});return true;})()`);await new Promise(resolve=>setTimeout(resolve,150));return rawClick(expression);}
+const capture = '.image-idea-capture';
+const button = (text,scope=capture)=>`[...document.querySelectorAll(${JSON.stringify(scope+' button')})].find(el=>el.textContent===${JSON.stringify(text)})`;
+async function selectFile(name){const {root}=await call('DOM.getDocument');const {nodeId}=await call('DOM.querySelector',{nodeId:root.nodeId,selector:capture+' input[type=file]'});await call('DOM.setFileInputFiles',{nodeId,files:[path.resolve('qa-artifacts/image-ideas/'+name+'.png')]});await wait(`document.querySelector('${capture} img')`);}
+try {
+ await call('Runtime.enable');await call('Network.enable');await call('Page.enable');await call('Page.bringToFront');await call('DOM.enable');
+ for(const [name,width,height] of [['desktop',1440,1000],['mobile-layout',390,844]]){
+  await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
+  await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+  await call('Page.navigate',{url:base+'/scripts/image-trial/'});await wait(`document.querySelector('${capture} input[type=file]')`);
+  await evaluate(`(async()=>{const {db}=await import('/src/db.ts');await db.cards.clear();await db.attachments.clear();await db.brainEdges.clear();})()`);
+  assert.equal(await evaluate(`!!window.chengjing.secretaryVault`),false);
+  assert.equal(await evaluate(`document.querySelector('${capture} .source-actions button').disabled`),true);
+  await click(`document.querySelector('${capture} input[type=checkbox]')`);
+  await selectFile('zh');
+  await wait(`${button('本機辨識文字')} && !(${button('本機辨識文字')}).disabled`);
+  await click(button('本機辨識文字'));
+  await wait(`document.querySelector('${capture} details pre')?.textContent.includes('ZT-82')`);
+  assert.equal(await evaluate(`document.querySelectorAll('${capture} input[type=checkbox]')[1].checked`),false);
+  await fill(`${capture} textarea`, 'ZT-82 我收藏這張圖，想確認週五會議時間。');
+  await fill(`${capture} input[type=url]`, 'https://example.invalid/synthetic-zh');
+  await click(button('收藏圖片與想法'));
+  await wait(`document.body.textContent.includes('已收藏 1 張圖片')`);
+  await evaluate(`(async()=>{const {searchNoteSources}=await import('/src/lib/sourceWorkbench.ts');const hits=await searchNoteSources('ZT-82','zh-TW',24,false);if(!hits.length||hits[0].excerpt.includes('會 議 紀 錄'))throw new Error('Unreviewed OCR leaked to evidence');})()`);
+  await wait(`document.querySelectorAll('${capture}').length===2`);
+  await evaluate(`document.querySelectorAll('${capture}')[1].dataset.qaEditor='true'`);
+  const scope = '[data-qa-editor=true]';
+  await fill(scope+' textarea[rows="5"]','會議紀錄 ZT-82 週五下午三點；原文主張仍待查證。');
+  await click(`document.querySelector('${scope} input[type=checkbox]')`);
+  await click(button('保存校正版本',scope));
+  await wait(`document.querySelector('${scope} [role=status]')?.textContent.includes('已保存校正版本')`);
+  await evaluate(`(async()=>{const {db}=await import('/src/db.ts');const {localEvidenceRepository,referenceQuote,checkEvidence}=await import('/src/lib/investigationEvidence.ts');const card=(await db.cards.toArray())[0];const source=await localEvidenceRepository.resolve('card:'+card.id);const ref=await referenceQuote(source,'會議紀錄 ZT-82 週五下午三點');if(await checkEvidence(ref,localEvidenceRepository)!=='valid')throw new Error('checked quote missing');window.__imageRef=ref;})()`);
+  await click(button('收藏圖片與想法'));
+  await wait(`document.querySelector('${capture} [role=status]')?.textContent.includes('相同原圖已存在')`);
+  assert.equal(await evaluate(`(async()=>{const {db}=await import('/src/db.ts');return db.cards.count();})()`),1);
+  await selectFile('id');
+  await evaluate(`(()=>{const select=document.querySelector('${capture} select');select.value='en-US';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await click(button('本機辨識文字'));await wait(`document.querySelector('${capture} details pre')?.textContent.includes('Jadwal')`);
+  await fill(`${capture} textarea[rows="5"]`,'ZT-82 Jadwal rapat hari Jumat pukul tiga; perlu konfirmasi.');
+  await click(`document.querySelectorAll('${capture}')[0].querySelectorAll('input[type=checkbox]')[1]`);
+  await click(button('收藏圖片與想法'));await wait(`document.body.textContent.includes('已收藏 2 張圖片')`);
+  await click(`document.querySelector('details.evidence-investigation > summary')`);
+  await fill('.investigation-question','ZT-82');
+  await click(button('檢索相關片段','.evidence-investigation'));
+  await wait(`document.querySelectorAll('.investigation-results > article').length>=2`);
+  await click(button('建立本機證據大綱','.evidence-investigation'));
+  await wait(`document.querySelectorAll('[data-source-state=valid]').length>=2`);
+  await click(`document.querySelector('.investigation-results .evidence-references > summary')`);
+  await wait(`document.querySelector('.investigation-results .evidence-references').open`);
+  await click(button('查看目前原文','.investigation-results .evidence-references'));
+  await wait(`document.querySelector('.source-original mark')`);
+  await click(button('關閉原文','.evidence-investigation'));
+  console.log(name+' original located');
+  await click(button('採納這項解讀','.evidence-investigation'));
+  console.log(name+' relation accepted');
+  await evaluate(`window.confirm=()=>true;true`); // Explicit synthetic graph consent only, no real data.
+  await click(button('寫入公開關係圖','.evidence-investigation'));
+  await wait(`document.querySelector('.evidence-investigation [role=status]')?.textContent.includes('graph')`);
+  assert.equal(await evaluate(`(async()=>{const {db}=await import('/src/db.ts');return db.brainEdges.count();})()`),1);
+  await evaluate(`window.__exportCancelled=0;window.confirm=()=>{window.__exportCancelled++;return false;}`);
+  await click(button('確認後匯出明文文件','.evidence-investigation'));
+  await wait(`window.__exportCancelled===1`);
+  console.log(name+' export cancelled');
+  await screenshot(name+'.png');
+  const overflow=await evaluate(`document.documentElement.scrollWidth>window.innerWidth+1`);assert.equal(overflow,false);
+  await evaluate(`(async()=>{const {db}=await import('/src/db.ts');const {checkEvidence,localEvidenceRepository}=await import('/src/lib/investigationEvidence.ts');const {readImageIdea}=await import('/src/lib/imageIdeas.ts');const card=await db.cards.get(window.__imageRef.key.slice(5));await db.attachments.delete(readImageIdea(card).attachmentId);if(await checkEvidence(window.__imageRef,localEvidenceRepository)==='valid')throw new Error('deleted source stayed valid');})()`);
+  await wait(`document.querySelector('[data-source-state=invalid]') || document.querySelector('[data-source-state=missing]')`);
+  report.screens.push({name,width,height,ocr:'actual Windows local OCR via trial-only loopback adapter', chinese:true,indonesian:'English engine; no dedicated language pack', unreviewedExcluded:true,correction:true,duplicate:true,originalQuoteLocated:true,acceptedGraphRelation:true,exportCancelled:true,sourceDeletionInvalidates:true,horizontalOverflow:overflow});
+ }
+ assert.deepEqual(report.externalRequests,[]);assert.deepEqual(errors,[]);
+ await fs.writeFile(path.join(output,'qa-report.json'),JSON.stringify(report,null,2));
+ console.log(JSON.stringify(report,null,2));
+}finally{clearTimeout(timeout);ws.close();}
