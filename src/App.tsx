@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { mobileMotion } from "./lib/mobileMotion";
 import { db, pruneAllCardVersions, pruneLegacyDemoSourceCard, pruneUntouchedJournalDrafts, seedDatabase } from "./db";
 import { getHealthCopy } from "./lib/healthCopy";
-import { hasPersistedLanguagePreference, useAppStore } from "./store";
+import { useAppStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { Workspace, preloadWorkspaceView } from "./components/Workspace";
@@ -125,10 +125,8 @@ export function App() {
     return () => { window.clearTimeout(readyTimer); dispose(); };
   }, [ready]);
 
-  useEffect(() => {
-    if (hasPersistedLanguagePreference()) return;
-    void window.chengjing?.app?.getPreferredLanguage?.().then((preferred) => setLanguage(preferred.language)).catch(() => {});
-  }, [setLanguage]);
+  // Source and operating-system languages do not override the reading-language
+  // default. Explicit persisted/user-selected app language still takes priority.
 
   useEffect(() => {
     applyTheme(theme);

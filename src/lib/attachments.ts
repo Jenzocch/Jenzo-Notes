@@ -23,7 +23,7 @@ export async function persistAttachment(name: string, blob: Blob, mime: string, 
   const id = crypto.randomUUID();
   const createdAt = Date.now();
   let attachment: AttachmentRecord;
-  if (window.chengjing?.attachments) {
+  if (window.chengjing?.attachments?.importData) {
     attachment = sourcePath
       ? await window.chengjing.attachments.importPath({ id, sourcePath, name, mime, createdAt })
       : await window.chengjing.attachments.importData({ id, data: base64FromDataUrl(await blobToDataUrl(blob)), name, mime, createdAt });

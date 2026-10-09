@@ -15,6 +15,7 @@ async function settle(action: () => void | Promise<unknown>) { await act(async (
 async function click(text: string) { await settle(() => { const button = [...host.querySelectorAll("button")].find(el => el.textContent === text)!; expect(button.disabled).toBe(false); button.click(); }); }
 async function fill(selector: string, value: string) { await settle(() => { const el = host.querySelector(selector) as HTMLTextAreaElement; Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); }); }
 beforeEach(async () => {
+  vi.mocked(sourcesStillCurrent).mockResolvedValue(true);
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   window.chengjing = { secretaryVault: mockSecretaryVault() } as NonNullable<Window["chengjing"]>;
   await unlockSecureVault(); host = document.createElement("div"); document.body.append(host); root = createRoot(host);
@@ -23,7 +24,7 @@ beforeEach(async () => {
 afterEach(async () => { await settle(() => root.unmount()); host.remove(); await lockSecureVault(); window.chengjing = undefined; vi.restoreAllMocks(); });
 it.each([false, true])("discards a private compose result after lock (unlock again: %s)", async unlockAgain => {
   let finish!: (value: boolean) => void;
-  vi.mocked(sourcesStillCurrent).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  vi.mocked(sourcesStillCurrent).mockImplementation(sources => sources.length ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(true));
   await fill("fieldset textarea", "LOCK-RACE-PRIVATE-SYNTHETIC"); await click("Capture and select");
   await fill(".source-selection + label textarea", "synthetic goal"); await click("Create excerpt document");
   await settle(() => lockSecureVault()); expect(host.textContent).not.toContain("LOCK-RACE-PRIVATE-SYNTHETIC");

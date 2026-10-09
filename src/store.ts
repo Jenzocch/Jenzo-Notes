@@ -82,8 +82,9 @@ export function hasPersistedLanguagePreference() {
 }
 
 function initialLanguage() {
-  if (typeof navigator === "undefined") return "en" as AppLanguage;
-  return languageFromPreferences(navigator.languages?.length ? [...navigator.languages] : [navigator.language]);
+  // Jenzo's reading language defaults to Traditional Chinese. Persisted explicit
+  // preferences still hydrate over this default; source/OCR language is separate.
+  return "zh-TW" as AppLanguage;
 }
 
 export const useAppStore = create<AppState>()(

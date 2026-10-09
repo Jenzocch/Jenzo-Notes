@@ -42,6 +42,7 @@ export interface BrainEdgeView {
   confidence?: number;
   relationType?: BrainRelationType;
   evidence?: string[];
+  evidenceRefs?: import("./investigationEvidence").EvidenceRef[];
   temporalDistanceDays?: number;
   persisted: boolean;
 }
@@ -417,6 +418,7 @@ export function buildBrainGraph(input: {
       confidence: edge.confidence,
       relationType: edge.relationType,
       evidence: edge.evidence,
+      evidenceRefs: edge.evidenceRefs,
       temporalDistanceDays: edge.temporalDistanceDays,
       persisted: true,
     }))

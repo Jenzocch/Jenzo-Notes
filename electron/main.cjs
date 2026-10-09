@@ -1590,6 +1590,8 @@ ipcMain.handle("file:open", async (_event, options) => {
 });
 
 ipcMain.handle("attachment:import-path", async (_event, request) => importAttachmentPath(request));
+ipcMain.handle("image:ocr-status", async () => require("./local-ocr.cjs").status());
+ipcMain.handle("image:ocr", async (_event, request) => require("./local-ocr.cjs").recognize(request));
 ipcMain.handle("attachment:import-data", async (_event, request) => importAttachmentData(request));
 let attachmentRemovalQueue;
 function pendingAttachmentRemovals() {

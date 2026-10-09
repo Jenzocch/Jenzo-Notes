@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { EvidenceReferences } from "../components/EvidenceReferences";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { Html, Line, OrbitControls } from "@react-three/drei";
@@ -897,6 +898,7 @@ export function SecondBrainView() {
       </section>
 
       {edgeMenu && <div className="brain-edge-menu" style={{ left: edgeMenu.x, top: edgeMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
+        {!!edgeMenu.edge.evidenceRefs?.length && <EvidenceReferences evidence={edgeMenu.edge.evidenceRefs} />}
         <header><span>{edgeMenu.edge.origin === "manual" ? t("brain.originManual") : edgeMenu.edge.origin === "ai" ? edgeMenu.edge.relationType ? semanticCopy.relationLabels[edgeMenu.edge.relationType] : t("brain.originAI") : t("brain.originStructure")}</span><p>{edgeMenu.edge.reason}</p></header>
         {edgeMenu.edge.persisted ? <button type="button" onClick={async () => { await db.brainEdges.delete(edgeMenu.edge.id); setEdgeMenu(null); }}><Trash2 size={14} />{t("brain.deleteThisLink")}</button> : <button type="button" disabled><Unlink size={14} />{t("brain.removeOnBoard")}</button>}
       </div>}

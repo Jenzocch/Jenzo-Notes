@@ -1,0 +1,65 @@
+{
+  "baseCommit": "fb810213ce85f7b8f20a77ac81f65bdfafe07eb7",
+  "environment": "LG gram / Windows / installed Windows OCR",
+  "frontend": {
+    "files": 55,
+    "passed": 244
+  },
+  "node": {
+    "passed": 83,
+    "skipped": 1,
+    "failed": 0,
+    "skipReason": "POSIX file mode test does not assert Windows ACLs"
+  },
+  "types": "passed",
+  "build": "passed",
+  "lint": "no configured lint script; React accessibility/cancellation review and diff check completed",
+  "ocrActual": {
+    "zh-Hant-TW": "Chinese synthetic screenshot recognized; whitespace correction required",
+    "en-US": "Indonesian Latin screenshot recognized using English engine",
+    "blankImage": "empty output",
+    "id-ID": "not installed; rejected without fallback"
+  },
+  "browser": {
+    "sizes": [
+      "1440x1000",
+      "390x844"
+    ],
+    "sharedCaptureEntry": "passed",
+    "androidPicker": "existing native API mocked, not device acceptance",
+    "canonicalSourceAfterCardEditorOpen": "passed",
+    "localOcrFlow": "passed",
+    "quotedOriginal": "passed",
+    "acceptedGraphRelation": "passed",
+    "exportCancel": "passed",
+    "originalDeletionInvalidates": "passed",
+    "horizontalOverflow": false,
+    "externalRequests": 0,
+    "uncaughtExceptions": 0
+  },
+  "privacy": "ordinary-note acknowledgment; marked private image search/revision/dedup refused; no private data used",
+  "ai": {
+    "calls": 0,
+    "paidCalls": 0,
+    "modelDownloads": 0
+  },
+  "nativeAcceptance": {
+    "electronWindowAndIpc": "open",
+    "androidDeviceAndOcr": "open; no Android OCR engine added",
+    "keystoreLifecycle": "prior open gate retained",
+    "productionUpdaterAndIdentity": "prior open gate retained"
+  },
+  "meetingTextEnhancement": "existing import and source-confirmation flow reused; dedicated classification UI remains subsequent slice",
+  "merge": false,
+  "deploy": false,
+  "apkInstalled": false,
+  "newPackagesOrServices": false,
+  "exactFinalCommitAndCi": "recorded in PR and local ignored final-validation.json after commit",
+  "followUp": {
+    "reviewBase": "6882e1ef04c29ade4c159d8a9c1043fbe9d266fa",
+    "R11": "9 new source snapshot/UI/consent/vault-read/CAS tests passed; stale draft retained and persistence stopped",
+    "readingLanguage": "zh-TW default; raw Indonesian retained; no automatic translation or cross-language semantic retrieval",
+    "languageRegression": "1 new Indonesian original/entity/numeric retention and literal-search test passed",
+    "browser": "Desktop 1440x1000 and mobile 390x844 shared capture passed; mobile opens via existing create shortcut, native picker mocked; no device/touch acceptance"
+  }
+}

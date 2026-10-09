@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { readImageIdea } from "../lib/imageIdeas";
 import { db } from "../db";
 import { useI18n } from "../hooks/useI18n";
 import { useAppStore } from "../store";
 import { runAI } from "../lib/ai";
 import { useSecureVault } from "../hooks/useSecureVault";
 import { SecureVaultControls } from "./SecureVaultControls";
+import { EvidenceInvestigation } from "./EvidenceInvestigation";
 import { listPrivateItems, readSecureVault, savePrivateItem, secureVaultEpoch, secureVaultTransaction } from "../lib/secureSecretary";
-import { documentPrompt, excerptDocument, exportSourceDocument, parseSourcedDocument, searchNoteSources, sourceAppendix, sourceContext, sourcesStillCurrent, type NoteSource } from "../lib/sourceWorkbench";
+import { documentPrompt, excerptDocument, exportSourceDocument, noteSourceOperation, parseSourcedDocument, searchNoteSources, sourceAppendix, sourceContext, sourcesStillCurrent, type NoteSource } from "../lib/sourceWorkbench";
 
 export function SourceWorkbench() {
   const { language } = useI18n();
   const zh = language.startsWith("zh");
-  const { status: vaultStatus } = useSecureVault();
+  const { status: vaultStatus, data: vaultData } = useSecureVault();
   const [capture, setCapture] = useState("");
   const [query, setQuery] = useState("");
   const [goal, setGoal] = useState("");
@@ -22,12 +25,19 @@ export function SourceWorkbench() {
   const [original, setOriginal] = useState<{ title: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sourcesValid, setSourcesValid] = useState(false);
+  const watchedSources = useLiveQuery(async () => {
+    const records = await Promise.all(documentSources.map(source => source.type === "card" ? db.cards.get(source.id) : source.type === "fragment" ? db.fragments.get(source.id) : null));
+    const ids = records.flatMap(record => { if (!record || !("properties" in record)) return []; try { const image = readImageIdea(record); return image ? [image.attachmentId] : []; } catch { return []; } });
+    return { records, attachments: await Promise.all(ids.map(id => db.attachments.get(id))) };
+  }, [documentSources.map(source => source.key).join("|")]);
   const searchVersion = useRef(0);
   const operationBusy = useRef(false);
   const generation = useRef(0);
   const unlocked = vaultStatus.state === "unlocked";
   const session = () => { const current = generation.current; const epoch = secureVaultEpoch(); return () => current === generation.current && epoch === secureVaultEpoch(); };
   const finalText = draft + sourceAppendix(documentSources, language);
+  useEffect(() => { let active = true; setSourcesValid(false); void sourcesStillCurrent(documentSources).then(valid => { if (active) setSourcesValid(valid); }).catch(() => { if (active) setSourcesValid(false); }); return () => { active = false; }; }, [documentSources, watchedSources, vaultStatus.state, vaultData]);
   useEffect(() => {
     const invalidate = () => { generation.current++; searchVersion.current++; operationBusy.current = false; setBusy(false); };
     window.addEventListener("chengjing:secure-vault-locking", invalidate);
@@ -46,9 +56,10 @@ export function SourceWorkbench() {
   async function saveEncryptedDraft() {
     if (operationBusy.current || vaultStatus.state !== "unlocked") return; operationBusy.current = true; setBusy(true);
     const current = session();
-    try { await secureVaultTransaction(data => { data.entries["source-draft-v2"] = { version: 2, goal, draft, sources: documentSources }; }); if (current()) setError("Encrypted draft saved"); }
+    const guard = noteSourceOperation(documentSources);
+    try { await guard.revalidate(); await secureVaultTransaction(data => { data.entries["source-draft-v2"] = { version: 2, goal, draft, sources: documentSources }; }, guard); if (current()) setError("Encrypted draft saved"); }
     catch (error) { if (current()) setError(error instanceof Error ? error.message : "Encrypted draft save failed"); }
-    finally { if (current()) { operationBusy.current = false; setBusy(false); } }
+    finally { guard.dispose(); if (current()) { operationBusy.current = false; setBusy(false); } }
   }
 
   async function captureThought() {
@@ -106,16 +117,18 @@ export function SourceWorkbench() {
     if (!unlocked || !draft.trim() || busy || operationBusy.current) return;
     operationBusy.current = true;
     const current = session();
+    const guard = noteSourceOperation(documentSources);
     setBusy(true); setError("");
     try {
-      if (exportFile) await exportSourceDocument(finalText, language);
+      await guard.revalidate();
+      if (exportFile) await exportSourceDocument(finalText, language, guard);
       else {
-        await savePrivateItem("note", finalText);
+        await savePrivateItem("note", finalText, crypto.randomUUID(), guard);
         if (!current()) return;
         setError(zh ? "已存為私人加密筆記；不納入舊明文同步／備份。" : "Saved in private encrypted vault; outside legacy sync/plaintext backups.");
       }
     } catch (exception) { if (current()) setError(String(exception)); }
-    finally { if (current()) { operationBusy.current = false; setBusy(false); } }
+    finally { guard.dispose(); if (current()) { operationBusy.current = false; setBusy(false); } }
   }
 
   async function openSource(source: NoteSource) {
@@ -132,8 +145,9 @@ export function SourceWorkbench() {
   return <details className="source-workbench">
     <summary>{zh ? "來源工作台 · 搜尋到文件" : "Source workbench · Search to document"}</summary>
     <SecureVaultControls />
+    <EvidenceInvestigation />
     <p>{zh ? "草稿只在記憶體；請明確儲存加密草稿。導出是防止 HTML／遠端圖片啟動的純文字 Markdown。舊資料不會自動遷移。" : "Drafts stay in memory until explicitly saved encrypted. Export is inert text Markdown, with no active HTML or remote images. Old data is not automatically migrated."}</p>
-    <button disabled={busy || vaultStatus.state !== "unlocked" || !draft.trim()} onClick={() => void saveEncryptedDraft()}>{zh ? "儲存加密草稿" : "Save encrypted draft"}</button>
+    <button disabled={busy || !sourcesValid || vaultStatus.state !== "unlocked" || !draft.trim()} onClick={() => void saveEncryptedDraft()}>{zh ? "儲存加密草稿" : "Save encrypted draft"}</button>
     <fieldset disabled={busy || vaultStatus.state !== "unlocked"}>
     <p>{zh ? "先用關鍵字搜尋全部卡片與片語，再選取來源。只整理你選取的片段；可移除來源或修正文稿。" : "Search all cards and thoughts by keyword, then select sources. Only selected excerpts are used; remove sources or edit the draft."}</p>
     <label>{zh ? "快速加入想法或貼資料" : "Capture an idea or paste material"}<textarea rows={2} value={capture} disabled={busy} onChange={event => setCapture(event.target.value)} /></label><button type="button" disabled={busy || !capture.trim()} onClick={() => void captureThought()}>{zh ? "留下並選取" : "Capture and select"}</button>
@@ -154,7 +168,8 @@ export function SourceWorkbench() {
     <button type="button" disabled={busy} onClick={() => setGoal(zh ? "對照所選來源，整理共同點、差異與可能關聯。每項關聯列出雙方原文證據，區分推論與事實，並指出仍需核對的問題。" : "Compare selected sources: shared themes, differences and possible relationships. Quote both sides for each relationship, distinguish inference from recorded facts, and list questions to verify.")}>{zh ? "使用來源關聯目標" : "Use source comparison goal"}</button>
     <p>{zh ? `已選 ${selected.length}/8 筆。AI 整理會把這些片段送至你目前設定的 provider；原文不會修改。` : `${selected.length}/8 selected. AI compose sends these excerpts to your configured provider; originals remain intact.`}</p>
     <div className="source-actions"><button type="button" disabled={!unlocked || busy || !selected.length || !goal.trim()} onClick={() => void compose(false)}>{zh ? "建立摘錄文件" : "Create excerpt document"}</button><button type="button" disabled={!unlocked || busy || !selected.length || !goal.trim()} onClick={() => void compose(true)}>{busy ? zh ? "處理中…" : "Working…" : zh ? "AI 整理草稿" : "AI compose draft"}</button></div>
-    {unlocked && draft && <><p>{zh ? "請核對草稿與附錄：AI 產生時會驗證逐字引用，手動修改不會重新驗證；引用存在不代表推論成立。離開前可另存為筆記。" : "Review draft and appendix: AI quotes are checked at generation; manual edits are not revalidated. A quote does not prove an inference. Save as a note before leaving."}</p><label>{zh ? "可編輯文件" : "Editable document"}<textarea className="source-document" rows={12} value={draft} disabled={busy} onChange={event => setDraft(event.target.value)} /></label><details><summary>{zh ? "附錄來源" : "Source appendix"}</summary><pre>{sourceAppendix(documentSources, language)}</pre></details><div className="source-actions"><button type="button" disabled={busy || !draft.trim()} onClick={() => void save(false)}>{zh ? "另存為筆記" : "Save document as note"}</button><button type="button" disabled={busy || !draft.trim()} onClick={() => void save(true)}>{zh ? "導出 Markdown 文件" : "Export Markdown document"}</button></div></>}
+    {unlocked && draft && <><p>{zh ? "請核對草稿與附錄：AI 產生時會驗證逐字引用，手動修改不會重新驗證；引用存在不代表推論成立。離開前可另存為筆記。" : "Review draft and appendix: AI quotes are checked at generation; manual edits are not revalidated. A quote does not prove an inference. Save as a note before leaving."}</p><label>{zh ? "可編輯文件" : "Editable document"}<textarea className="source-document" rows={12} value={draft} disabled={busy} onChange={event => setDraft(event.target.value)} /></label><details><summary>{zh ? "附錄來源" : "Source appendix"}</summary><pre>{sourceAppendix(documentSources, language)}</pre></details><div className="source-actions"><button type="button" disabled={busy || !sourcesValid || !draft.trim()} onClick={() => void save(false)}>{zh ? "另存為筆記" : "Save document as note"}</button><button type="button" disabled={busy || !sourcesValid || !draft.trim()} onClick={() => void save(true)}>{zh ? "導出 Markdown 文件" : "Export Markdown document"}</button></div></>}
+    {!!draft && !sourcesValid && <p role="alert">{zh ? "引用來源檢查中或已變更／刪除。已保留草稿；保存與匯出暫停，請重新搜尋、選取來源並建立文件。" : "Sources are checking, changed or deleted. Draft retained; save/export paused. Search and compose again."}</p>}
     {error && <p role="status">{error}</p>}
   </details>;
 }
