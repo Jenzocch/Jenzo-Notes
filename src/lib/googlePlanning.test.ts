@@ -4,7 +4,7 @@ import { webcrypto } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
 import { collectImage } from "./imageIdeas";
-import { calendarPayload, cancelPlanning, confirmPlanning, createMockGoogleConnector, listPlanningOperations, planningQuestions, proposePlanning, syncPlanning, tasksPayload, type GooglePlanningConnector, type PlanningInput } from "./googlePlanning";
+import { calendarPayload, cancelPlanning, confirmPlanning, createMockGoogleConnector, listPlanningOperations, planningQuestions, proposePlanning, repreviewPlanning, syncPlanning, tasksPayload, type GooglePlanningConnector, type PlanningInput } from "./googlePlanning";
 import { lockSecureVault, unlockSecureVault } from "./secureSecretary";
 import { mockSecretaryVault } from "./secureSecretary.fixture";
 
@@ -131,5 +131,18 @@ describe("Google API-shaped payloads and mock-only state machine", () => {
     const connector: GooglePlanningConnector = { mode: "mock", connectionState: async () => { enter(); await wait; return "connected"; }, createCalendar: create, createTask: create };
     const syncing = syncPlanning(operation.id, connector); await entered; await db.cards.update(dispatchCard.id, { updatedAt: dispatchCard.updatedAt + 1 }); release(); const result = await syncing;
     expect(result.sync["google-tasks"]).toBe("source-invalid"); expect(create).not.toHaveBeenCalled();
+  });
+
+  it("persists source revocation across retries and never resends a created destination after re-consent", async () => {
+    const { card } = await collectImage("persistent-revocation.png", new NodeBlob(["persistent-revocation"], { type: "image/png" }) as unknown as Blob, { annotation: "source", sourceUrl: "", sourceDate: "", rawText: "", correctedText: "", reviewed: false, engine: "manual", language: "" });
+    const operation = await confirmPlanning(await proposePlanning(base({ kind: "task", title: "Persistent revocation", imageCardId: card.id, destinations: ["google-tasks"] })));
+    const first = await syncPlanning(operation.id, createMockGoogleConnector("connected")); expect(first.status).toBe("synced"); const createdId = first.remoteIds["google-tasks"];
+    await db.cards.update(card.id, { updatedAt: card.updatedAt + 1 }); const revoked = await syncPlanning(operation.id, createMockGoogleConnector("connected"));
+    expect(revoked.status).toBe("source-revoked"); expect(revoked.sourceAuthority).toBe("revoked"); expect(revoked.remoteIds["google-tasks"]).toBe(createdId);
+    await db.cards.update(card.id, { updatedAt: card.updatedAt }); const blockedCreate = vi.fn(async () => ({ id: "must-not-run" })); const blocked: GooglePlanningConnector = { mode: "mock", connectionState: async () => "connected", createCalendar: blockedCreate, createTask: blockedCreate };
+    await expect(syncPlanning(operation.id, blocked)).rejects.toThrow(/preview and confirm/); expect(blockedCreate).not.toHaveBeenCalled();
+    const renewed = await confirmPlanning(await repreviewPlanning(operation.id)); expect(renewed.sourceAuthority).toBe("valid"); expect(renewed.status).toBe("synced");
+    const calendar = vi.fn(async () => ({ id: "must-not-recreate" })); const task = vi.fn(async () => ({ id: "must-not-recreate" })); const connector: GooglePlanningConnector = { mode: "mock", connectionState: async () => "connected", createCalendar: calendar, createTask: task };
+    const completed = await syncPlanning(operation.id, connector); expect(completed.status).toBe("synced"); expect(calendar).not.toHaveBeenCalled(); expect(task).not.toHaveBeenCalled(); expect(completed.remoteIds["google-tasks"]).toBe(createdId);
   });
 });

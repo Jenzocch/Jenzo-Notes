@@ -35,15 +35,17 @@ export interface PlanningProposal {
   airportArrivalInstant?: number;
   leaveInstant?: number;
   imageSource?: { cardId: string; updatedAt: number; sha256: string };
+  renewGeneration?: number;
   issuedAt: number;
   expiresAt: number;
 }
 
 export interface PlanningOperation extends PlanningProposal {
-  status: "confirmed" | "partially-synced" | "synced" | "cancelled";
+  status: "confirmed" | "partially-synced" | "synced" | "source-revoked" | "cancelled";
   sync: Partial<Record<GooglePlanningDestination, PlanningSyncState>>;
   remoteIds: Partial<Record<GooglePlanningDestination, string>>;
   generation: number;
+  sourceAuthority: "valid" | "revoked";
   createdAt: number;
 }
 
@@ -109,7 +111,7 @@ function normalizedPlanningInput(input: PlanningInput): PlanningInput {
   return { ...common, dueDate: "", noDueDate: false, imageCardId: undefined };
 }
 
-export async function proposePlanning(input: PlanningInput): Promise<PlanningProposal> {
+async function buildPlanningProposal(input: PlanningInput, id: string = crypto.randomUUID(), renewGeneration?: number): Promise<PlanningProposal> {
   if (input.title.length > 500 || input.details.length > 8000 || input.location.length > 1000 || input.origin.length > 1000 || input.transport.length > 500) throw new Error("Planning draft is too large");
   if (input.destinations.some(value => !["google-calendar", "google-tasks"].includes(value))) throw new Error("Invalid planning destination");
   const normalized = normalizedPlanningInput(input);
@@ -124,10 +126,17 @@ export async function proposePlanning(input: PlanningInput): Promise<PlanningPro
     }
   }
   const issuedAt = Date.now();
-  const id = crypto.randomUUID(); const imageSource = normalized.imageCardId ? await imageSnapshot(normalized.imageCardId) : undefined;
-  const proposal = { id, input: normalized, questions, startInstant, airportArrivalInstant, leaveInstant, imageSource, issuedAt, expiresAt: issuedAt + 5 * 60000 };
+  const imageSource = normalized.imageCardId ? await imageSnapshot(normalized.imageCardId) : undefined;
+  const proposal = { id, input: normalized, questions, startInstant, airportArrivalInstant, leaveInstant, imageSource, renewGeneration, issuedAt, expiresAt: issuedAt + 5 * 60000 };
   if (imageSource) await registerProposalGuard(proposal);
   return proposal;
+}
+export function proposePlanning(input: PlanningInput) { return buildPlanningProposal(input); }
+
+export async function repreviewPlanning(id: string) {
+  const operation = (await listPlanningOperations()).find(value => value.id === id);
+  if (!operation || operation.status !== "source-revoked" || operation.sourceAuthority !== "revoked" || !operation.input.imageCardId) throw new Error("Planning source consent is not awaiting renewal");
+  return buildPlanningProposal(operation.input, operation.id, operation.generation);
 }
 
 function proposalFingerprint(proposal: PlanningProposal) { return JSON.stringify(proposal); }
@@ -142,10 +151,12 @@ async function confirmPlanningInner(proposal: PlanningProposal) {
   if (!validId(proposal.id) || proposal.questions.length || planningQuestions(proposal.input).length) throw new Error("Draft is incomplete or invalid; preview it again before confirming");
   const prior = (await readSecureVault()).data.entries[prefix + proposal.id] as PlanningOperation | undefined;
   if (prior) {
+    if (proposal.renewGeneration !== undefined) return renewPlanningConsent(prior, proposal);
     const priorProposal: PlanningProposal = { id: prior.id, input: prior.input, questions: prior.questions, startInstant: prior.startInstant, airportArrivalInstant: prior.airportArrivalInstant, leaveInstant: prior.leaveInstant, imageSource: prior.imageSource, issuedAt: prior.issuedAt, expiresAt: prior.expiresAt };
     if (proposalFingerprint(priorProposal) !== proposalFingerprint(proposal)) throw new Error("Planning operation ID was reused with different content");
     return prior;
   }
+  if (proposal.renewGeneration !== undefined) throw new Error("Planning renewal target is missing; preview again");
   if (proposal.expiresAt !== proposal.issuedAt + 5 * 60000 || Date.now() > proposal.expiresAt) throw new Error("Draft is expired; preview it again before confirming");
   if (proposal.input.kind !== "task") {
     const expectedStart = oneInstant(proposal.input.wallTime, proposal.input.timeZone);
@@ -162,16 +173,27 @@ async function confirmPlanningInner(proposal: PlanningProposal) {
       if (proposalFingerprint({ id: existing.id, input: existing.input, questions: existing.questions, startInstant: existing.startInstant, airportArrivalInstant: existing.airportArrivalInstant, leaveInstant: existing.leaveInstant, imageSource: existing.imageSource, issuedAt: existing.issuedAt, expiresAt: existing.expiresAt }) !== proposalFingerprint(proposal)) throw new Error("Planning operation ID was reused with different content");
       return existing;
     }
-    const operation: PlanningOperation = { ...proposal, status: "confirmed", sync: Object.fromEntries(proposal.input.destinations.map(destination => [destination, "pending"])), remoteIds: {}, generation: 1, createdAt: Date.now() };
+    const operation: PlanningOperation = { ...proposal, status: "confirmed", sync: Object.fromEntries(proposal.input.destinations.map(destination => [destination, "pending"])), remoteIds: {}, generation: 1, sourceAuthority: "valid", createdAt: Date.now() };
     data.entries[key] = operation; return operation;
   }, guardRecord?.guard); stored = true; return result; } finally { if (stored) disposeProposalGuard(proposal.id); }
+}
+
+async function renewPlanningConsent(prior: PlanningOperation, proposal: PlanningProposal) {
+  if (prior.status !== "source-revoked" || prior.sourceAuthority !== "revoked" || proposal.renewGeneration !== prior.generation || !proposal.imageSource || JSON.stringify(proposal.input) !== JSON.stringify(prior.input)) throw new Error("Planning renewal authority changed; preview again");
+  if (proposal.expiresAt !== proposal.issuedAt + 5 * 60000 || Date.now() > proposal.expiresAt) throw new Error("Draft is expired; preview it again before confirming");
+  const guardRecord = proposalGuards.get(proposal.id); if (!guardRecord) throw new Error("Image consent expired or changed; preview again"); let stored = false;
+  try { const result = await secureVaultTransaction(data => {
+    const current = data.entries[prefix + proposal.id] as PlanningOperation | undefined;
+    if (!current || current.status !== "source-revoked" || current.sourceAuthority !== "revoked" || current.generation !== proposal.renewGeneration) throw new Error("Planning renewal authority changed; preview again");
+    current.imageSource = proposal.imageSource; current.issuedAt = proposal.issuedAt; current.expiresAt = proposal.expiresAt; current.renewGeneration = undefined; current.sourceAuthority = "valid"; current.generation++; refreshStatus(current); return current;
+  }, guardRecord.guard); stored = true; return result; } finally { if (stored) disposeProposalGuard(proposal.id); }
 }
 
 export async function listPlanningOperations() {
   const entries = Object.entries((await readSecureVault()).data.entries).filter(([key]) => key.startsWith(prefix));
   return entries.map(([key, value]) => {
     const operation = value as PlanningOperation;
-    if (!operation || key !== prefix + operation.id || !validId(operation.id) || !Number.isSafeInteger(operation.generation) || operation.generation < 1 || !["confirmed", "partially-synced", "synced", "cancelled"].includes(operation.status) || !operation.input || !["task", "online-meeting", "international-flight"].includes(operation.input.kind) || !Array.isArray(operation.input.destinations) || operation.input.destinations.some(destination => !["google-calendar", "google-tasks"].includes(destination)) || planningQuestions(operation.input).length || JSON.stringify(operation.input) !== JSON.stringify(normalizedPlanningInput(operation.input)) || Boolean(operation.input.imageCardId) !== Boolean(operation.imageSource) || operation.imageSource?.cardId !== operation.input.imageCardId) throw new Error("Invalid planning record; original data retained for recovery");
+    if (!operation || key !== prefix + operation.id || !validId(operation.id) || !Number.isSafeInteger(operation.generation) || operation.generation < 1 || !["confirmed", "partially-synced", "synced", "source-revoked", "cancelled"].includes(operation.status) || !["valid", "revoked"].includes(operation.sourceAuthority) || (operation.status === "source-revoked" && operation.sourceAuthority !== "revoked") || (operation.sourceAuthority === "revoked" && !["source-revoked", "cancelled"].includes(operation.status)) || !operation.input || !["task", "online-meeting", "international-flight"].includes(operation.input.kind) || !Array.isArray(operation.input.destinations) || operation.input.destinations.some(destination => !["google-calendar", "google-tasks"].includes(destination)) || planningQuestions(operation.input).length || JSON.stringify(operation.input) !== JSON.stringify(normalizedPlanningInput(operation.input)) || Boolean(operation.input.imageCardId) !== Boolean(operation.imageSource) || operation.imageSource?.cardId !== operation.input.imageCardId) throw new Error("Invalid planning record; original data retained for recovery");
     return operation;
   });
 }
@@ -246,6 +268,7 @@ async function syncPlanningInner(id: string, connector: GooglePlanningConnector,
   if (connector.mode !== "mock") throw new Error("Real Google writes are not enabled in this build");
   let operation = (await listPlanningOperations()).find(value => value.id === id); if (!operation) throw new Error("Planning operation not found");
   if (operation.status === "cancelled") throw new Error("Planning operation was cancelled");
+  if (operation.status === "source-revoked" || operation.sourceAuthority === "revoked") throw new Error("Planning image consent was revoked; preview and confirm the source again");
   const generation = operation.generation; const sourceGuard = operation.imageSource ? imageSourceGuard(operation.imageSource) : undefined;
   try {
     await sourceGuard?.revalidate();
@@ -264,23 +287,28 @@ async function syncPlanningInner(id: string, connector: GooglePlanningConnector,
       } catch (error) {
         if (signal?.aborted) break;
         const state = error instanceof Error && /source-invalidated/.test(error.message) ? "source-invalid" : error instanceof Error && /token/i.test(error.message) ? "token-invalid" : "failed";
-        await updateSync(id, generation, [destination], state);
+        if (state === "source-invalid") await revokeSourceConsent(id, generation, [destination]); else await updateSync(id, generation, [destination], state);
         if (state === "source-invalid") break;
       }
     }
     return (await listPlanningOperations()).find(value => value.id === id)!;
   } catch (error) {
-    if (error instanceof Error && /source-invalidated/.test(error.message)) return updateSync(id, generation, operation.input.destinations, "source-invalid");
+    if (error instanceof Error && /source-invalidated/.test(error.message)) return revokeSourceConsent(id, generation, operation.input.destinations);
     if (error instanceof Error && /cancelled|authority changed/.test(error.message)) return (await listPlanningOperations()).find(value => value.id === id)!;
     throw error;
   } finally { sourceGuard?.dispose(); }
 }
 
-async function activePlanningOperation(id: string, generation: number) { const operation = (await listPlanningOperations()).find(value => value.id === id); if (!operation) throw new Error("Planning operation not found"); if (operation.status === "cancelled" || operation.generation !== generation) throw new Error("Planning operation cancelled or authority changed"); return operation; }
+async function activePlanningOperation(id: string, generation: number) { const operation = (await listPlanningOperations()).find(value => value.id === id); if (!operation) throw new Error("Planning operation not found"); if (operation.status === "cancelled" || operation.status === "source-revoked" || operation.sourceAuthority !== "valid" || operation.generation !== generation) throw new Error("Planning operation cancelled or authority changed"); return operation; }
 
 function refreshStatus(operation: PlanningOperation) {
+  if (operation.sourceAuthority === "revoked") { operation.status = "source-revoked"; return; }
   const states = operation.input.destinations.map(destination => operation.sync[destination]);
   operation.status = states.every(value => value === "created") ? "synced" : states.some(value => value === "created") ? "partially-synced" : "confirmed";
+}
+
+async function revokeSourceConsent(id: string, generation: number, destinations: GooglePlanningDestination[]) {
+  return secureVaultTransaction(data => { const operation = data.entries[prefix + id] as PlanningOperation | undefined; if (!operation) throw new Error("Planning operation not found"); if (operation.status === "cancelled" || operation.generation !== generation) return operation; for (const destination of destinations) if (operation.sync[destination] !== "created") operation.sync[destination] = "source-invalid"; operation.sourceAuthority = "revoked"; operation.status = "source-revoked"; operation.generation++; return operation; });
 }
 
 async function updateSync(id: string, generation: number, destinations: GooglePlanningDestination[], state: PlanningSyncState | GoogleConnectionState) {
