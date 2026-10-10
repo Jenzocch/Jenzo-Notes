@@ -14,13 +14,13 @@ try {
   `});
   const report=[];
   for(const [mode,width,height] of [["desktop",1440,1000],["mobile",390,844]]) {
-    const keyword=`SecretaryQA${Date.now()}`; const noteTitle=`${keyword} note`; const reminderTitle=`${keyword} reminder`; const planningTitle=`${keyword} planning`;
+    const keyword=`SecretaryQA${Date.now()}`; const noteTitle=`${keyword} note`; const reminderTitle=`${keyword} reminder`; const planningTitle=`${keyword} planning`; const pendingPlanningTitle=`${keyword} pending authority`;
     await call("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:mode==="mobile"});
     await call("Page.navigate",{url:base}); await wait("document.querySelector('.workspace')");
     await evaluate("(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.setState({language:'en'});useAppStore.getState().setView('tasks')})()");
     await wait("document.querySelector('.secretary-panel textarea')"); await new Promise(resolve=>setTimeout(resolve,400));
     await click(button("Unlock private storage")); await wait("!document.querySelector('.secretary-sensitive').disabled");
-    await evaluate("Promise.all([import('/src/db.ts'),import('/src/lib/secretary.ts')]).then(()=>true)");
+    await evaluate("Promise.all([import('/src/db.ts'),import('/src/lib/secretary.ts'),import('/src/lib/googlePlanning.ts')]).then(()=>true)");
     await call("Network.enable");
     await call("Network.emulateNetworkConditions",{offline:true,latency:0,downloadThroughput:0,uploadThroughput:0});
     if(await evaluate("window.__secretaryQA.starts"))throw new Error("Mic started automatically");
@@ -61,14 +61,18 @@ try {
     await wait("[...document.querySelectorAll('.google-planning-panel h3')].some(e=>e.textContent.includes('待你確認'))");
     await evaluate("(()=>{const e=[...document.querySelectorAll('.google-planning-panel button')].find(e=>e.textContent==='確認本機建立');e.click();e.click()})()");
     await wait(`document.querySelector('.google-planning-panel')?.textContent.includes(${JSON.stringify(planningTitle)})`);
-    if(!await evaluate(`(async()=>{const {db}=await import('/src/db.ts');return (await db.tasks.filter(t=>t.title===${JSON.stringify(planningTitle)}).count())===1})()`))throw new Error("Planning double confirmation duplicated task");
+    if(!await evaluate(`(async()=>{const {db}=await import('/src/db.ts');const {listPlanningOperations}=await import('/src/lib/googlePlanning.ts');return (await db.tasks.filter(t=>t.title===${JSON.stringify(planningTitle)}).count())===0&&(await listPlanningOperations()).filter(o=>o.input.title===${JSON.stringify(planningTitle)}).length===1})()`))throw new Error("Private planning confirmation leaked or duplicated ordinary task data");
     await evaluate("(()=>{const e=document.querySelector('.google-planning-panel [name=planning-connection]');const set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;set.call(e,'connected');e.dispatchEvent(new Event('change',{bubbles:true}))})()");
     await evaluate("(()=>{const e=[...document.querySelectorAll('.google-planning-panel button')].find(e=>e.textContent==='執行／重試 MOCK');e.click();e.click()})()");
     await wait("document.querySelector('.google-planning-panel')?.textContent.includes('google-tasks: created')");
     if(!await evaluate(`(async()=>{const {listPlanningOperations}=await import('/src/lib/googlePlanning.ts');const matches=(await listPlanningOperations()).filter(o=>o.input.title===${JSON.stringify(planningTitle)});return matches.length===1&&matches[0].remoteIds['google-tasks']?.startsWith('MOCK-')})()`))throw new Error("Planning mock sync/deduplication failed");
     await screenshot(`${mode}.png`);if(await evaluate("document.documentElement.scrollWidth>innerWidth+1"))throw new Error("Horizontal overflow");
+    await fill(".google-planning-panel [name=planning-title]",pendingPlanningTitle); await click("[...document.querySelectorAll('.google-planning-panel button')].find(e=>e.textContent==='預覽待確認草稿')"); await wait(`document.querySelector('.google-planning-panel')?.textContent.includes(${JSON.stringify(pendingPlanningTitle)})`);
     await call("Network.emulateNetworkConditions",{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});
-    await click(button("Lock private storage")); await wait("document.querySelector('.secretary-sensitive').disabled && !document.querySelector('.secretary-operations').textContent");
+    await click(button("Lock private storage")); await wait(`document.querySelector('.secretary-sensitive').disabled && !document.querySelector('.secretary-operations').textContent && !document.querySelector('.google-planning-panel').textContent.includes(${JSON.stringify(planningTitle)}) && !document.querySelector('.google-planning-panel').textContent.includes(${JSON.stringify(pendingPlanningTitle)}) && ![...document.querySelectorAll('.google-planning-panel input,.google-planning-panel textarea')].some(e=>e.value)`);
+    await click(button("Unlock private storage")); await wait("!document.querySelector('.secretary-sensitive').disabled && document.querySelector('.google-planning-panel [name=planning-title]')");
+    if(await evaluate(`document.querySelector('.google-planning-panel').textContent.includes(${JSON.stringify(pendingPlanningTitle)}) || document.querySelector('.google-planning-panel [name=planning-title]').value.includes(${JSON.stringify(pendingPlanningTitle)}) || [...document.querySelectorAll('.google-planning-panel h3')].some(e=>e.textContent.includes('待你確認'))`))throw new Error("Planning authority revived after lock/unlock");
+    await click(button("Lock private storage")); await wait("document.querySelector('.secretary-sensitive').disabled");
     await call("Page.reload");await wait("document.querySelector('.workspace')");
     await evaluate("(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.setState({language:'en'});useAppStore.getState().setView('tasks')})()"); await wait("document.querySelector('.secretary-sensitive')");
     if(!await evaluate("document.querySelector('.secretary-sensitive').disabled"))throw new Error("Vault auto-unlocked on reload");
@@ -77,7 +81,7 @@ try {
     if(persisted.length!==1||persisted[0].status!=='done')throw new Error("Restart or confirmation deduplication failed");
     if(!await evaluate(`(async()=>{const {listPlanningOperations}=await import('/src/lib/googlePlanning.ts');const matches=(await listPlanningOperations()).filter(o=>o.input.title===${JSON.stringify(planningTitle)});return matches.length===1&&matches[0].status==='synced'})()`))throw new Error("Planning operation did not survive restart");
     if(await evaluate("window.__secretaryQA.calls"))throw new Error("Unapproved cloud call");
-    report.push({mode,width,privateNoteSaved:true,noIndexedDBBody:true,encryptedFixturePersistence:true,lockClearsView:true,explicitUnlockAfterReload:true,doubleClickDeduplicated:true,offlineLocalActions:true,localSpeechMock:true,confirmedLocalReminder:true,overdueAcknowledged:true,restartPersisted:true,partialSuccessPreserved:true,clockDateBlocked:true,selectedMockImport:true,atomicMockBudget:true,planningDraftConfirmed:true,planningMockDeduplicated:true,planningRestartPersisted:true,nativeVaultBoundary:"MOCK (responsive layout only, not Android key support)"});
+    report.push({mode,width,privateNoteSaved:true,noIndexedDBBody:true,encryptedFixturePersistence:true,lockClearsView:true,explicitUnlockAfterReload:true,doubleClickDeduplicated:true,offlineLocalActions:true,localSpeechMock:true,confirmedLocalReminder:true,overdueAcknowledged:true,restartPersisted:true,partialSuccessPreserved:true,clockDateBlocked:true,selectedMockImport:true,atomicMockBudget:true,planningDraftConfirmed:true,planningVaultOnly:true,planningMockDeduplicated:true,planningLockClearsDom:true,planningUnlockDropsPendingAuthority:true,planningRestartPersisted:true,nativeVaultBoundary:"MOCK (responsive layout only, not Android key support)"});
   }
   if(errors.length)throw new Error(errors.join('\n'));
   await fs.writeFile(path.join(output,'report.json'),JSON.stringify({report,errors,realCloudCalls:0,realMicCalls:0},null,2));console.log(JSON.stringify(report,null,2));

@@ -12,7 +12,7 @@ function instantLabel(value: number | undefined, zone: string) {
 }
 
 export function GooglePlanningPanel({ capturedText, disabled }: { capturedText: string; disabled: boolean }) {
-  const { data } = useSecureVault();
+  const { status, data } = useSecureVault(); const unlocked = status.state === "unlocked";
   const [input, setInput] = useState(() => empty(Intl.DateTimeFormat().resolvedOptions().timeZone));
   const [proposal, setProposal] = useState<PlanningProposal | null>(null);
   const [operation, setOperation] = useState<PlanningOperation | null>(null);
@@ -21,30 +21,40 @@ export function GooglePlanningPanel({ capturedText, disabled }: { capturedText: 
   const [failure, setFailure] = useState<GooglePlanningDestination | "">("");
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
   const controller = useRef<AbortController | null>(null);
+  const session = useRef(0); const unlockedRef = useRef(unlocked); const observedUnlock = useRef(unlocked);
+  if (observedUnlock.current !== unlocked) { observedUnlock.current = unlocked; session.current++; controller.current?.abort(); controller.current = null; }
+  unlockedRef.current = unlocked;
   const questions = planningQuestions(input);
   useEffect(() => { setProposal(null); }, [input]);
   useEffect(() => {
+    controller.current?.abort(); controller.current = null;
+    if (!unlocked) { setInput(empty(Intl.DateTimeFormat().resolvedOptions().timeZone)); setProposal(null); setOperation(null); setImageCard(null); setConnection("not-connected"); setFailure(""); setBusy(false); setMessage(""); }
+  }, [unlocked]);
+  useEffect(() => {
+    if (!unlocked) { setOperation(null); return; }
     const saved = Object.entries(data.entries).filter(([key]) => key.startsWith("secretary-google-planning:")).map(([, value]) => value as PlanningOperation).sort((left, right) => right.createdAt - left.createdAt)[0];
-    if (saved) setOperation(saved);
-  }, [data]);
-  useEffect(() => () => controller.current?.abort(), []);
+    setOperation(saved || null);
+  }, [data, unlocked]);
+  useEffect(() => () => { session.current++; unlockedRef.current = false; controller.current?.abort(); }, []);
+  const isCurrent = (token: number) => unlockedRef.current && session.current === token;
   function patch(value: Partial<PlanningInput>) { setInput(current => ({ ...current, ...value })); setMessage(""); }
   function changeKind(kind: PlanningKind) {
-    patch({ kind, destinations: kind === "task" ? ["google-tasks"] : ["google-calendar"], reminderMinutes: kind === "online-meeting" ? "20" : input.reminderMinutes });
+    setImageCard(null); setProposal(null); setMessage(""); setInput({ ...empty(input.timeZone), kind, title: input.title, details: input.details, destinations: kind === "task" ? ["google-tasks"] : ["google-calendar"], reminderMinutes: kind === "online-meeting" ? "20" : input.reminderMinutes });
   }
-  async function act(action: () => Promise<void>) { if (busy || disabled) return; setBusy(true); setMessage(""); try { await action(); } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); } finally { setBusy(false); } }
+  async function act(action: (token: number) => Promise<void>) { if (busy || disabled || !unlockedRef.current) return; const token = session.current; setBusy(true); setMessage(""); try { await action(token); } catch (error) { if (isCurrent(token)) setMessage(error instanceof Error ? error.message : String(error)); } finally { if (isCurrent(token)) setBusy(false); } }
+  if (!unlocked) return <details className="google-planning-panel"><summary>Google Calendar / Tasks 規劃草稿 · MOCK</summary><p>解鎖私人儲存後才能查看或編輯規劃草稿。</p></details>;
   return <details className="google-planning-panel">
     <summary>Google Calendar / Tasks 規劃草稿 · MOCK</summary>
-    <p>先在本機補齊問題並預覽，再由你確認。此版本沒有 OAuth、憑證或真實 Google 寫入；MOCK 狀態不代表已同步。Calendar 通知不是準時鬧鐘。</p>
+    <p>先在加密 vault 補齊問題並預覽，再由你確認。不會自動把私人文字降級保存成一般 Notes 待辦。此版本沒有 OAuth、憑證或真實 Google 寫入；MOCK 狀態不代表已同步。Calendar 通知不是準時鬧鐘。</p>
     <div className="planning-grid">
-      <label>類型<select name="planning-kind" value={input.kind} disabled={busy} onChange={event => changeKind(event.target.value as PlanningKind)}><option value="task">Notes 待辦</option><option value="online-meeting">線上會議</option><option value="international-flight">國際航班行前規劃</option></select></label>
+      <label>類型<select name="planning-kind" value={input.kind} disabled={busy} onChange={event => changeKind(event.target.value as PlanningKind)}><option value="task">私人規劃待辦</option><option value="online-meeting">線上會議</option><option value="international-flight">國際航班行前規劃</option></select></label>
       <label>標題<input name="planning-title" value={input.title} disabled={busy} onChange={event => patch({ title: event.target.value })} /></label>
       <label>要保留的細節<textarea name="planning-details" rows={3} value={input.details} disabled={busy} onChange={event => patch({ details: event.target.value })} /></label>
       {!!capturedText.trim() && <button type="button" disabled={busy} onClick={() => patch({ title: input.title || capturedText.trim().split("\n")[0].slice(0, 500), details: input.details || capturedText.trim() })}>帶入上方裝置端語音／文字</button>}
       {input.kind === "task" ? <>
         <label>到期日（Google Tasks 只保存日期，不保存到期時間）<input name="planning-due-date" type="date" value={input.dueDate} disabled={busy || input.noDueDate} onChange={event => patch({ dueDate: event.target.value })} /></label>
         <label><input name="planning-no-due-date" type="checkbox" checked={input.noDueDate} disabled={busy} onChange={event => patch({ noDueDate: event.target.checked, dueDate: event.target.checked ? "" : input.dueDate })} />明確設為無到期日</label>
-        <details><summary>直接拍照／選照片，連回此待辦（一般 Notes）</summary><p>照片、來源、OCR 與校正文字只保存在 Notes；Google Tasks 不支援由這個流程寫入附件，因此只送安全的 Notes 卡片參照，不送本機檔案路徑。</p><ImageIdeaCapture onSaved={card => { setImageCard(card); patch({ imageCardId: card.id }); }} />{imageCard && <p>已連結：{imageCard.title} · {imageCard.id}</p>}</details>
+        <details><summary>直接拍照／選照片，連回此待辦（一般 Notes）</summary><p>照片、來源、OCR 與校正文字只保存在 Notes；Google Tasks 不支援由這個流程寫入附件，因此只送安全的 Notes 卡片參照，不送本機檔案路徑。</p><ImageIdeaCapture onSaved={card => { if (unlockedRef.current) { setImageCard(card); patch({ imageCardId: card.id }); } }} />{imageCard && <p>已連結：{imageCard.title} · {imageCard.id}</p>}</details>
       </> : <>
         <label>{input.kind === "international-flight" ? "航班起飛日期時間" : "會議開始日期時間"}<input type="datetime-local" value={input.wallTime} disabled={busy} onChange={event => patch({ wallTime: event.target.value })} /></label>
         <label>IANA 時區<input value={input.timeZone} disabled={busy} onChange={event => patch({ timeZone: event.target.value })} /></label>
@@ -62,9 +72,9 @@ export function GooglePlanningPanel({ capturedText, disabled }: { capturedText: 
       <fieldset><legend>目的地</legend>{(["google-calendar", "google-tasks"] as const).map(destination => <label key={destination}><input type="checkbox" disabled={busy || input.kind === "task" && destination === "google-calendar"} checked={input.destinations.includes(destination)} onChange={() => patch({ destinations: input.destinations.includes(destination) ? input.destinations.filter(value => value !== destination) : [...input.destinations, destination] })} />{destination === "google-calendar" ? "Google Calendar" : "Google Tasks"}</label>)}</fieldset>
     </div>
     {!!questions.length && <section className="secretary-proposal"><h3>需要追問，尚不能建立</h3><ul>{questions.map(question => <li key={question}>{question}</li>)}</ul></section>}
-    <button type="button" disabled={busy || !!questions.length} onClick={() => { try { setProposal(proposePlanning({ ...input, imageCardId: imageCard?.id })); setMessage(""); } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); } }}>預覽待確認草稿</button>
-    {proposal && <section className="secretary-proposal"><h3>待你確認，尚未建立／同步</h3><p>{proposal.input.title}</p><p>{proposal.input.details}</p>{proposal.startInstant !== undefined && <p>原始時間：{instantLabel(proposal.startInstant, proposal.input.timeZone)} · {proposal.input.timeZone}</p>}{proposal.airportArrivalInstant !== undefined && <p>目標抵達機場：{instantLabel(proposal.airportArrivalInstant, proposal.input.timeZone)}</p>}{proposal.leaveInstant !== undefined && <p>規劃開始準備／出發：{instantLabel(proposal.leaveInstant, proposal.input.timeZone)}（可能跨日，請核對）</p>}<p>目的地：{proposal.input.destinations.join(" / ")}</p><button type="button" disabled={busy} onClick={() => void act(async () => { const result = await confirmPlanning(proposal); setOperation(result); setProposal(null); setMessage(result.localTaskId ? "已在 Notes 建立待辦；Google 尚未同步。" : "已保存本機草稿；Google 尚未同步。"); })}>確認本機建立</button></section>}
-    {operation && <section className="secretary-proposal"><h3>已確認的本機作業</h3><b>{operation.input.title}</b><p>{operation.status} · {Object.entries(operation.sync).map(([key, value]) => `${key}: ${value}`).join(" / ")}</p><label>連線狀態（僅合成測試）<select name="planning-connection" value={connection} disabled={busy} onChange={event => setConnection(event.target.value as GoogleConnectionState)}><option value="not-connected">未連接</option><option value="connected">MOCK 已連接</option><option value="token-invalid">MOCK token 失效</option></select></label><label>模擬單一目的地失敗<select name="planning-failure" value={failure} disabled={busy} onChange={event => setFailure(event.target.value as GooglePlanningDestination | "")}><option value="">不失敗</option><option value="google-calendar">Calendar 失敗</option><option value="google-tasks">Tasks 失敗</option></select></label><div className="source-actions"><button type="button" disabled={busy || operation.status === "cancelled"} onClick={() => void act(async () => { const abort = new AbortController(); controller.current = abort; const result = await syncPlanning(operation.id, createMockGoogleConnector(connection, failure || undefined), abort.signal); setOperation(result); setMessage("MOCK 執行完成；沒有寫入 Google。"); controller.current = null; })}>執行／重試 MOCK</button>{busy && controller.current && <button type="button" onClick={() => { controller.current?.abort(); setMessage("已要求取消；真實連接器若已送出則不能假設遠端已撤回。"); }}>取消進行中操作</button>}<button type="button" disabled={busy || operation.status === "cancelled" || Object.values(operation.sync).includes("created")} onClick={() => void act(async () => { const result = await cancelPlanning(operation.id); setOperation(result); setMessage("已取消本機作業；未建立 Google 項目。"); })}>取消未同步作業</button></div></section>}
+    <button type="button" disabled={busy || !!questions.length} onClick={() => void act(async token => { const result = await proposePlanning({ ...input, imageCardId: imageCard?.id }); if (isCurrent(token)) { setProposal(result); setMessage(""); } })}>預覽待確認草稿</button>
+    {proposal && <section className="secretary-proposal"><h3>待你確認，尚未建立／同步</h3><p>{proposal.input.title}</p><p>{proposal.input.details}</p>{proposal.input.kind === "task" && <p>Google Tasks 到期日：{proposal.input.dueDate || "無到期日"}</p>}{proposal.startInstant !== undefined && <p>原始時間：{instantLabel(proposal.startInstant, proposal.input.timeZone)} · {proposal.input.timeZone}</p>}{proposal.airportArrivalInstant !== undefined && <p>目標抵達機場：{instantLabel(proposal.airportArrivalInstant, proposal.input.timeZone)}</p>}{proposal.leaveInstant !== undefined && <p>規劃開始準備／出發：{instantLabel(proposal.leaveInstant, proposal.input.timeZone)}（可能跨日，請核對）</p>}<p>目的地：{proposal.input.destinations.join(" / ")}</p><button type="button" disabled={busy} onClick={() => void act(async token => { const result = await confirmPlanning(proposal); if (isCurrent(token)) { setOperation(result); setProposal(null); setMessage("已保存加密本機規劃；沒有建立一般 Notes 待辦，Google 尚未同步。"); } })}>確認本機建立</button></section>}
+    {operation && <section className="secretary-proposal"><h3>已確認的本機作業</h3><b>{operation.input.title}</b><p>{operation.status} · {Object.entries(operation.sync).map(([key, value]) => `${key}: ${value}`).join(" / ")}</p><label>連線狀態（僅合成測試）<select name="planning-connection" value={connection} disabled={busy} onChange={event => setConnection(event.target.value as GoogleConnectionState)}><option value="not-connected">未連接</option><option value="connected">MOCK 已連接</option><option value="token-invalid">MOCK token 失效</option></select></label><label>模擬單一目的地失敗<select name="planning-failure" value={failure} disabled={busy} onChange={event => setFailure(event.target.value as GooglePlanningDestination | "")}><option value="">不失敗</option><option value="google-calendar">Calendar 失敗</option><option value="google-tasks">Tasks 失敗</option></select></label><div className="source-actions"><button type="button" disabled={busy || operation.status === "cancelled"} onClick={() => void act(async token => { const abort = new AbortController(); controller.current = abort; const result = await syncPlanning(operation.id, createMockGoogleConnector(connection, failure || undefined), abort.signal); if (isCurrent(token)) { setOperation(result); setMessage("MOCK 執行完成；沒有寫入 Google。"); controller.current = null; } })}>執行／重試 MOCK</button>{busy && controller.current && <button type="button" onClick={() => { controller.current?.abort(); controller.current = null; setMessage("已要求取消；真實連接器若已送出則不能假設遠端已撤回。"); }}>取消進行中操作</button>}<button type="button" disabled={busy || operation.status === "cancelled" || Object.values(operation.sync).includes("created")} onClick={() => void act(async token => { const result = await cancelPlanning(operation.id); if (isCurrent(token)) { setOperation(result); setMessage("已取消本機作業；未建立 Google 項目。"); } })}>取消未同步作業</button></div></section>}
     {message && <p role="status">{message}</p>}
   </details>;
 }
