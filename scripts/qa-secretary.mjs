@@ -14,7 +14,7 @@ try {
   `});
   const report=[];
   for(const [mode,width,height] of [["desktop",1440,1000],["mobile",390,844]]) {
-    const keyword=`SecretaryQA${Date.now()}`; const noteTitle=`${keyword} note`; const reminderTitle=`${keyword} reminder`;
+    const keyword=`SecretaryQA${Date.now()}`; const noteTitle=`${keyword} note`; const reminderTitle=`${keyword} reminder`; const planningTitle=`${keyword} planning`;
     await call("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:mode==="mobile"});
     await call("Page.navigate",{url:base}); await wait("document.querySelector('.workspace')");
     await evaluate("(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.setState({language:'en'});useAppStore.getState().setView('tasks')})()");
@@ -55,6 +55,17 @@ try {
     await click(button("Import selected mocks"));
     await click("[...document.querySelectorAll('.secretary-panel details summary')].find(e=>e.textContent.includes('API budget'))");
     await click(button("Simulate atomic reservation"));await wait("document.querySelector('.secretary-panel [role=status]')?.textContent.includes('MOCK reserved')");
+    await click("document.querySelector('.google-planning-panel > summary')");
+    await fill(".google-planning-panel [name=planning-title]",planningTitle); await fill(".google-planning-panel [name=planning-details]","Synthetic offline planning details"); await fill(".google-planning-panel [name=planning-due-date]","2026-10-12");
+    await click("[...document.querySelectorAll('.google-planning-panel button')].find(e=>e.textContent==='預覽待確認草稿')");
+    await wait("[...document.querySelectorAll('.google-planning-panel h3')].some(e=>e.textContent.includes('待你確認'))");
+    await evaluate("(()=>{const e=[...document.querySelectorAll('.google-planning-panel button')].find(e=>e.textContent==='確認本機建立');e.click();e.click()})()");
+    await wait(`document.querySelector('.google-planning-panel')?.textContent.includes(${JSON.stringify(planningTitle)})`);
+    if(!await evaluate(`(async()=>{const {db}=await import('/src/db.ts');return (await db.tasks.filter(t=>t.title===${JSON.stringify(planningTitle)}).count())===1})()`))throw new Error("Planning double confirmation duplicated task");
+    await evaluate("(()=>{const e=document.querySelector('.google-planning-panel [name=planning-connection]');const set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;set.call(e,'connected');e.dispatchEvent(new Event('change',{bubbles:true}))})()");
+    await evaluate("(()=>{const e=[...document.querySelectorAll('.google-planning-panel button')].find(e=>e.textContent==='執行／重試 MOCK');e.click();e.click()})()");
+    await wait("document.querySelector('.google-planning-panel')?.textContent.includes('google-tasks: created')");
+    if(!await evaluate(`(async()=>{const {listPlanningOperations}=await import('/src/lib/googlePlanning.ts');const matches=(await listPlanningOperations()).filter(o=>o.input.title===${JSON.stringify(planningTitle)});return matches.length===1&&matches[0].remoteIds['google-tasks']?.startsWith('MOCK-')})()`))throw new Error("Planning mock sync/deduplication failed");
     await screenshot(`${mode}.png`);if(await evaluate("document.documentElement.scrollWidth>innerWidth+1"))throw new Error("Horizontal overflow");
     await call("Network.emulateNetworkConditions",{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});
     await click(button("Lock private storage")); await wait("document.querySelector('.secretary-sensitive').disabled && !document.querySelector('.secretary-operations').textContent");
@@ -64,8 +75,9 @@ try {
     await click(button("Unlock private storage"));await wait("!document.querySelector('.secretary-sensitive').disabled");
     const persisted=await evaluate(`(async()=>{const {listReminders}=await import('/src/lib/secretary.ts');return (await listReminders()).filter(o=>o.title===${JSON.stringify(reminderTitle)})})()`);
     if(persisted.length!==1||persisted[0].status!=='done')throw new Error("Restart or confirmation deduplication failed");
+    if(!await evaluate(`(async()=>{const {listPlanningOperations}=await import('/src/lib/googlePlanning.ts');const matches=(await listPlanningOperations()).filter(o=>o.input.title===${JSON.stringify(planningTitle)});return matches.length===1&&matches[0].status==='synced'})()`))throw new Error("Planning operation did not survive restart");
     if(await evaluate("window.__secretaryQA.calls"))throw new Error("Unapproved cloud call");
-    report.push({mode,width,privateNoteSaved:true,noIndexedDBBody:true,encryptedFixturePersistence:true,lockClearsView:true,explicitUnlockAfterReload:true,doubleClickDeduplicated:true,offlineLocalActions:true,localSpeechMock:true,confirmedLocalReminder:true,overdueAcknowledged:true,restartPersisted:true,partialSuccessPreserved:true,clockDateBlocked:true,selectedMockImport:true,atomicMockBudget:true,nativeVaultBoundary:"MOCK (responsive layout only, not Android key support)"});
+    report.push({mode,width,privateNoteSaved:true,noIndexedDBBody:true,encryptedFixturePersistence:true,lockClearsView:true,explicitUnlockAfterReload:true,doubleClickDeduplicated:true,offlineLocalActions:true,localSpeechMock:true,confirmedLocalReminder:true,overdueAcknowledged:true,restartPersisted:true,partialSuccessPreserved:true,clockDateBlocked:true,selectedMockImport:true,atomicMockBudget:true,planningDraftConfirmed:true,planningMockDeduplicated:true,planningRestartPersisted:true,nativeVaultBoundary:"MOCK (responsive layout only, not Android key support)"});
   }
   if(errors.length)throw new Error(errors.join('\n'));
   await fs.writeFile(path.join(output,'report.json'),JSON.stringify({report,errors,realCloudCalls:0,realMicCalls:0},null,2));console.log(JSON.stringify(report,null,2));

@@ -9,6 +9,7 @@ import { startLocalSpeech, type LocalRecognitionConstructor } from "../lib/local
 import { reserveMockCost } from "../lib/secretaryBudget";
 import { SecureVaultControls } from "./SecureVaultControls";
 import { scheduleConfirmedAndroidReminder, startAndroidLocalSpeech, type NativeAvailability } from "../lib/androidSecretary";
+import { GooglePlanningPanel } from "./GooglePlanningPanel";
 
 function PrivateTaskEditor({ item, operation, disabled, act, evidence }: { evidence?: unknown; item: PrivateItem; operation?: ReminderOperation; disabled: boolean; act: (action: () => Promise<void>) => Promise<void> }) {
   const [title, setTitle] = useState(item.title); const [wall, setWall] = useState(operation ? reminderDisplayTime(operation) : "");
@@ -97,6 +98,7 @@ export function SecretaryPanel() {
       <details><summary>{zh ? "私人筆記／待辦" : "Private notes / tasks"}</summary>{privateItems.map(item => item.kind === "task" ? <PrivateTaskEditor key={item.id} evidence={data.entries[`secretary-task-evidence:${item.id}`]} item={item} operation={operations.find(operation => operation.taskId === item.id)} disabled={busy} act={act} /> : <article key={item.id}><b>{item.title}</b><pre>{item.plainText}</pre></article>)}</details>
       <details><summary>{zh ? "選定雲端來源 · MOCK" : "Selected cloud sources · MOCK"}</summary><p>{zh ? "只有合成示例，沒有 OAuth／網路讀取；只匯入已選來源。" : "Synthetic examples only: no OAuth/network reads; only selected sources are imported."}</p>{mockSources.map(source => <label key={source.id}><input type="checkbox" checked={selected.includes(source.id)} onChange={() => { importId.current = crypto.randomUUID(); setSelected(items => items.includes(source.id) ? items.filter(item => item !== source.id) : [...items, source.id]); }} />{source.provider}: {source.title}<small>{source.scope}</small></label>)}<button disabled={!selected.length} onClick={() => void act(async () => { await importSelectedMockSources(selected, mockPermission, importId.current); setMessage("Selected mock sources imported"); })}>{zh ? "匯入所選 mock" : "Import selected mocks"}</button></details>
       <details><summary>{zh ? "API 預算 · MOCK" : "API budget · MOCK"}</summary><p>{zh ? "NT$100／月為規劃目標。正式雲端 AI 暫停，等待共享帳本及可信費率；不是帳務硬上限，也不是每台裝置配額。" : "NT$100/month is a planning target. Cloud AI is paused pending a shared coordinator and verified pricing; this is neither a provider billing cap nor a per-device allowance."}</p><p>Mock: input 2000 + output max 1000, retries 1, USD/M 1/2, USD/TWD 35, buffer 1.3.</p><button onClick={() => void act(async () => { const amount = await reserveMockCost(budgetId.current, { inputTokens: 2000, maxOutputTokens: 1000, retries: 1, inputUsdPerMillion: 1, outputUsdPerMillion: 2, usdToTwd: 35, buffer: 1.3 }); setMessage(`MOCK reserved NT$${amount.toFixed(4)}; same operation is deduplicated.`); })}>{zh ? "模擬原子預留" : "Simulate atomic reservation"}</button></details>
+      <GooglePlanningPanel capturedText={text} disabled={busy || !unlocked} />
     </fieldset>
     {message && <p role="status">{message}</p>}
   </details>;
