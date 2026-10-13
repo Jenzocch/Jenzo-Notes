@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageIdeaCapture } from "./ImageIdeaCapture";
 import type { CardRecord } from "../types";
 import { cancelPlanning, confirmPlanning, createMockGoogleConnector, planningQuestions, proposePlanning, repreviewPlanning, syncPlanning, type GoogleConnectionState, type GooglePlanningDestination, type PlanningInput, type PlanningKind, type PlanningOperation, type PlanningProposal } from "../lib/googlePlanning";
@@ -16,6 +16,7 @@ export function GooglePlanningPanel({ capturedText, disabled }: { capturedText: 
   const [input, setInput] = useState(() => empty(Intl.DateTimeFormat().resolvedOptions().timeZone));
   const [proposal, setProposal] = useState<PlanningProposal | null>(null);
   const [operation, setOperation] = useState<PlanningOperation | null>(null);
+  const [selectedOperationId, setSelectedOperationId] = useState("");
   const [imageCard, setImageCard] = useState<CardRecord | null>(null);
   const [connection, setConnection] = useState<GoogleConnectionState>("not-connected");
   const [failure, setFailure] = useState<GooglePlanningDestination | "">("");
@@ -24,17 +25,18 @@ export function GooglePlanningPanel({ capturedText, disabled }: { capturedText: 
   const session = useRef(0); const unlockedRef = useRef(unlocked); const observedUnlock = useRef(unlocked);
   if (observedUnlock.current !== unlocked) { observedUnlock.current = unlocked; session.current++; controller.current?.abort(); controller.current = null; }
   unlockedRef.current = unlocked;
+  const operations = useMemo(() => Object.entries(data.entries).filter(([key]) => key.startsWith("secretary-google-planning:")).map(([, value]) => value as PlanningOperation).sort((left, right) => right.createdAt - left.createdAt), [data]);
   const questions = planningQuestions(input);
   useEffect(() => { setProposal(null); }, [input]);
   useEffect(() => {
     controller.current?.abort(); controller.current = null;
-    if (!unlocked) { setInput(empty(Intl.DateTimeFormat().resolvedOptions().timeZone)); setProposal(null); setOperation(null); setImageCard(null); setConnection("not-connected"); setFailure(""); setBusy(false); setMessage(""); }
+    if (!unlocked) { setInput(empty(Intl.DateTimeFormat().resolvedOptions().timeZone)); setProposal(null); setOperation(null); setSelectedOperationId(""); setImageCard(null); setConnection("not-connected"); setFailure(""); setBusy(false); setMessage(""); }
   }, [unlocked]);
   useEffect(() => {
     if (!unlocked) { setOperation(null); return; }
-    const saved = Object.entries(data.entries).filter(([key]) => key.startsWith("secretary-google-planning:")).map(([, value]) => value as PlanningOperation).sort((left, right) => right.createdAt - left.createdAt)[0];
-    setOperation(saved || null);
-  }, [data, unlocked]);
+    const selected = operations.find(value => value.id === selectedOperationId) || operations[0] || null;
+    setOperation(selected); if (selected && selected.id !== selectedOperationId) setSelectedOperationId(selected.id);
+  }, [operations, unlocked, selectedOperationId]);
   useEffect(() => () => { session.current++; unlockedRef.current = false; controller.current?.abort(); }, []);
   const isCurrent = (token: number) => unlockedRef.current && session.current === token;
   function patch(value: Partial<PlanningInput>) { setInput(current => ({ ...current, ...value })); setMessage(""); }
@@ -73,7 +75,8 @@ export function GooglePlanningPanel({ capturedText, disabled }: { capturedText: 
     </div>
     {!!questions.length && <section className="secretary-proposal"><h3>需要追問，尚不能建立</h3><ul>{questions.map(question => <li key={question}>{question}</li>)}</ul></section>}
     <button type="button" disabled={busy || !!questions.length} onClick={() => void act(async token => { const result = await proposePlanning({ ...input, imageCardId: imageCard?.id }); if (isCurrent(token)) { setProposal(result); setMessage(""); } })}>預覽待確認草稿</button>
-    {proposal && <section className="secretary-proposal"><h3>待你確認，尚未建立／同步</h3><p>{proposal.input.title}</p><p>{proposal.input.details}</p>{proposal.input.kind === "task" && <p>Google Tasks 到期日：{proposal.input.dueDate || "無到期日"}</p>}{proposal.startInstant !== undefined && <p>原始時間：{instantLabel(proposal.startInstant, proposal.input.timeZone)} · {proposal.input.timeZone}</p>}{proposal.airportArrivalInstant !== undefined && <p>目標抵達機場：{instantLabel(proposal.airportArrivalInstant, proposal.input.timeZone)}</p>}{proposal.leaveInstant !== undefined && <p>規劃開始準備／出發：{instantLabel(proposal.leaveInstant, proposal.input.timeZone)}（可能跨日，請核對）</p>}<p>目的地：{proposal.input.destinations.join(" / ")}</p><button type="button" disabled={busy} onClick={() => void act(async token => { const result = await confirmPlanning(proposal); if (isCurrent(token)) { setOperation(result); setProposal(null); setMessage("已保存加密本機規劃；沒有建立一般 Notes 待辦，Google 尚未同步。"); } })}>確認本機建立</button></section>}
+    {proposal && <section className="secretary-proposal"><h3>待你確認，尚未建立／同步</h3><p>{proposal.input.title}</p><p>{proposal.input.details}</p>{proposal.input.kind === "task" && <p>Google Tasks 到期日：{proposal.input.dueDate || "無到期日"}</p>}{proposal.startInstant !== undefined && <p>原始時間：{instantLabel(proposal.startInstant, proposal.input.timeZone)} · {proposal.input.timeZone}</p>}{proposal.airportArrivalInstant !== undefined && <p>目標抵達機場：{instantLabel(proposal.airportArrivalInstant, proposal.input.timeZone)}</p>}{proposal.leaveInstant !== undefined && <p>規劃開始準備／出發：{instantLabel(proposal.leaveInstant, proposal.input.timeZone)}（可能跨日，請核對）</p>}<p>目的地：{proposal.input.destinations.join(" / ")}</p><button type="button" disabled={busy} onClick={() => void act(async token => { const result = await confirmPlanning(proposal); if (isCurrent(token)) { setOperation(result); setSelectedOperationId(result.id); setProposal(null); setMessage("已保存加密本機規劃；沒有建立一般 Notes 待辦，Google 尚未同步。"); } })}>確認本機建立</button></section>}
+    {!!operations.length && <label>已保存的加密規劃（{operations.length}）<select name="planning-operation-history" value={operation?.id || ""} disabled={busy} onChange={event => { const selected = operations.find(value => value.id === event.target.value) || null; setSelectedOperationId(event.target.value); setOperation(selected); setProposal(null); setMessage(""); }}>{operations.map(value => <option key={value.id} value={value.id}>{value.input.title} · {value.status} · {new Date(value.createdAt).toLocaleDateString("zh-TW")}</option>)}</select></label>}
     {operation && <section className="secretary-proposal"><h3>已確認的本機作業</h3><b>{operation.input.title}</b><p>{operation.status} · {Object.entries(operation.sync).map(([key, value]) => `${key}: ${value}`).join(" / ")}</p>{operation.status === "source-revoked" && <p>圖片來源同意已永久撤銷；即使檔案還原也不會自動恢復。必須重新預覽並確認，已成功目的地不會重送。</p>}<label>連線狀態（僅合成測試）<select name="planning-connection" value={connection} disabled={busy} onChange={event => setConnection(event.target.value as GoogleConnectionState)}><option value="not-connected">未連接</option><option value="connected">MOCK 已連接</option><option value="token-invalid">MOCK token 失效</option></select></label><label>模擬單一目的地失敗<select name="planning-failure" value={failure} disabled={busy} onChange={event => setFailure(event.target.value as GooglePlanningDestination | "")}><option value="">不失敗</option><option value="google-calendar">Calendar 失敗</option><option value="google-tasks">Tasks 失敗</option></select></label><div className="source-actions">{operation.status === "source-revoked" && <button type="button" disabled={busy} onClick={() => void act(async token => { const result = await repreviewPlanning(operation.id); if (isCurrent(token)) { setProposal(result); setMessage("請重新核對來源與 payload，再確認換發來源同意。"); } })}>重新預覽來源同意</button>}<button type="button" disabled={busy || operation.status === "cancelled" || operation.status === "source-revoked"} onClick={() => void act(async token => { const abort = new AbortController(); controller.current = abort; const result = await syncPlanning(operation.id, createMockGoogleConnector(connection, failure || undefined), abort.signal); if (isCurrent(token)) { setOperation(result); setMessage("MOCK 執行完成；沒有寫入 Google。"); controller.current = null; } })}>執行／重試 MOCK</button>{busy && controller.current && <button type="button" onClick={() => { controller.current?.abort(); controller.current = null; setMessage("已要求取消；真實連接器若已送出則不能假設遠端已撤回。"); }}>取消進行中操作</button>}<button type="button" disabled={busy || operation.status === "cancelled" || Object.values(operation.sync).includes("created")} onClick={() => void act(async token => { const result = await cancelPlanning(operation.id); if (isCurrent(token)) { setOperation(result); setMessage("已取消本機作業；未建立 Google 項目。"); } })}>取消未同步作業</button></div></section>}
     {message && <p role="status">{message}</p>}
   </details>;
