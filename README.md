@@ -49,6 +49,7 @@ Windows ARM 電腦請下載 ARM64；一般 Intel／AMD 電腦請下載 x64。目
 - 專案看板：多看板、多列表、卡片跨列表拖曳、列表排序、開始／截止日期、標籤、Checklist、附件、搜尋、篩選、排序與收藏
 - 標籤資料庫：表格、看板、階段更新與自訂標籤
 - PDF、DOCX、Markdown、純文字、HTML、圖片、音訊與影片匯入
+- 內建 365 份 ThinkWithBlack 繁中行銷方法：本機索引搜尋、單篇按需載入、來源與 MIT 授權追溯，可明確保存成卡片再與筆記關聯
 - 網頁文章擷取與 YouTube 來源卡片
 - OpenRouter：本機 AES-256-GCM 加密金鑰、精選模型、同步最新模型、自訂模型名稱
 - 自訂 AI Provider：可連接多組 OpenAI 相容 Gateway 或本機 Ollama，逐組選擇 Chat Completions／Responses API，並支援模型清單、測試與加密金鑰
@@ -68,6 +69,8 @@ Windows ARM 電腦請下載 ARM64；一般 Intel／AMD 電腦請下載 x64。目
 - 90%／100%／110%／120% 全域介面文字比例
 - 五語介面：繁體中文、簡體中文、English、日本語、한국어；日期、AI 回答、原生選單與共享介面同步切換
 - 半自動更新：GitHub API、Cloudflare Worker、Release Feed、邊緣快取與 KV 多層備援，下載後驗證並開啟目前平台的 DMG 或 Windows 安裝程式
+
+第三方教材與素材授權見 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## v0.9.4 第二大腦模型相容性
 

@@ -1,0 +1,13 @@
+{
+  "name": "Marketing Skills for Everyone",
+  "publisher": "ThinkWithBlack / backtrue",
+  "repository": "https://github.com/backtrue/thinkwithblack-skill",
+  "commit": "28f0c2ccf0f8581b857f8d1d854d43908acc3656",
+  "catalogVersion": "2026.10.15-free.1",
+  "catalogEntries": 365,
+  "language": "zh-TW",
+  "license": "MIT",
+  "licenseSha256": "0dd9c1e09bdbbfe49f715446548606d467c5678de5d0f1a3b8f8c36555711411",
+  "importedAt": "2026-10-16",
+  "boundary": "Bundled reference material only. No upstream scripts, MCP services, account connections, or external actions are installed or authorized."
+}

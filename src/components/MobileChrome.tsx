@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BrainCircuit, CalendarDays, Columns3, Database, Feather, FileStack, Highlighter, ListTodo, LayoutGrid, Menu, Search, Settings, Sparkles, SquareKanban, Waves, ChevronRight, X } from "lucide-react";
+import { BookMarked, BrainCircuit, CalendarDays, Columns3, Database, Feather, FileStack, Highlighter, ListTodo, LayoutGrid, Menu, Search, Settings, Sparkles, SquareKanban, Waves, ChevronRight, X } from "lucide-react";
 import { motion, AnimatePresence, MotionConfig, useReducedMotion, useDragControls } from "framer-motion";
 import { useAppStore } from "../store";
 import { useI18n } from "../hooks/useI18n";
@@ -53,8 +53,8 @@ export function MobileChrome() {
     resume(); window.addEventListener("chengjing:android-resume", resume); window.addEventListener("chengjing:android-pause", pause);
     return () => { window.removeEventListener("chengjing:android-resume", resume); window.removeEventListener("chengjing:android-pause", pause); };
   }, []);
-  const icons={fragments:Feather,journal:CalendarDays,tasks:ListTodo,highlights:Highlighter,boards:Columns3,kanban:SquareKanban,database:Database,brain:BrainCircuit,settings:Settings,library:FileStack,today:LayoutGrid};
-  const hints:Partial<Record<AppView,[string,string]>>={fragments:["接住一閃而過的念頭","Catch a passing thought"],journal:["留給今天的一頁","A page for today"],tasks:["讓下一步更清楚","A clear next step"],highlights:["值得回看的句子","Words worth revisiting"],boards:["攤開想法，自由連結","Room to connect ideas"],kanban:["看見事情如何推進","See work move forward"],library:["所有卡片與收藏","Your cards and collections"],database:["把細節整理得有序","Bring details into focus"]};
+  const icons={fragments:Feather,journal:CalendarDays,tasks:ListTodo,highlights:Highlighter,boards:Columns3,kanban:SquareKanban,database:Database,brain:BrainCircuit,methods:BookMarked,settings:Settings,library:FileStack,today:LayoutGrid};
+  const hints:Partial<Record<AppView,[string,string]>>={fragments:["接住一閃而過的念頭","Catch a passing thought"],journal:["留給今天的一頁","A page for today"],tasks:["讓下一步更清楚","A clear next step"],highlights:["值得回看的句子","Words worth revisiting"],boards:["攤開想法，自由連結","Room to connect ideas"],kanban:["看見事情如何推進","See work move forward"],library:["所有卡片與收藏","Your cards and collections"],database:["把細節整理得有序","Bring details into focus"],methods:["按問題選一份行銷方法","Pick one method for the problem"]};
   const entry=(name:AppView)=>{const Icon=icons[name];return <motion.button key={name} type="button" className={`mobile-directory-item ${view===name?"is-current":""}`} whileTap={reduced?{}:{scale:0.97}} onClick={()=>choose(name)}><Icon size={22}/><span><b>{t(`nav.${name}` as Parameters<typeof t>[0])}</b>{hints[name]&&<small>{hints[name]![zh?0:1]}</small>}</span></motion.button>};
   return <MotionConfig reducedMotion="user">
     <header className="mobile-header"><span>澄境<small>CHENGJING</small></span><div><button aria-label={t("top.searchPlaceholder")} onClick={() => useAppStore.getState().setCommandOpen(true)}><Search size={21} /></button><button aria-label={allFeatures} aria-expanded={Boolean(sheet)} onClick={()=>setSheet("all")}><Menu size={23}/></button></div></header>
@@ -69,7 +69,7 @@ export function MobileChrome() {
       <header onPointerDown={event=>dragControls.start(event)}><i className="mobile-sheet-handle"/><div><small>CHENGJING</small><strong>{allFeatures}</strong></div><button aria-label={t("ai.close")} onClick={() => setSheet(null)}><X size={21}/></button></header>
       <div className="mobile-directory-scroll">
         {sheet==="all"&&<section><h3>{zh?"隨手記錄":"CAPTURE"}</h3><div className="mobile-directory-grid">{(["fragments","tasks","journal","highlights"] as AppView[]).map(entry)}</div></section>}
-        <section className="mobile-directory-explore"><h3>{zh?"思考與整理":"THINK & ORGANIZE"}</h3><button className="mobile-directory-brain" onClick={()=>choose("brain")}><span className="directory-brain-symbol"><BrainCircuit size={32}/></span><span><b>{t("nav.brain")}</b><small>{zh?"循著關聯，看見新的線索":"Follow connections. Find a new thread."}</small></span><ChevronRight size={18}/></button><div className="mobile-directory-grid">{(["boards","kanban","library","database"] as AppView[]).map(entry)}</div></section>
+        <section className="mobile-directory-explore"><h3>{zh?"思考與整理":"THINK & ORGANIZE"}</h3><button className="mobile-directory-brain" onClick={()=>choose("brain")}><span className="directory-brain-symbol"><BrainCircuit size={32}/></span><span><b>{t("nav.brain")}</b><small>{zh?"循著關聯，看見新的線索":"Follow connections. Find a new thread."}</small></span><ChevronRight size={18}/></button><div className="mobile-directory-grid">{(["boards","kanban","library","database","methods"] as AppView[]).map(entry)}</div></section>
         <footer><button onClick={()=>{useAppStore.getState().openAI();setSheet(null)}}><Sparkles size={19}/>{t("nav.ai")}</button><button onClick={()=>{useAppStore.getState().openWishPool();setSheet(null)}}><Waves size={19}/>{zh?"許願池":"Wish Pool"}</button><button onClick={()=>choose("settings")}><Settings size={19}/>{t("nav.settings")}</button></footer>
       </div>
     </motion.section></motion.div>}</AnimatePresence>

@@ -34,6 +34,7 @@ export type AppView =
   | "highlights"
   | "fragments"
   | "brain"
+  | "methods"
   | "settings";
 
 export interface CardRecord {

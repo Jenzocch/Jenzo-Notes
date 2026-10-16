@@ -21,6 +21,7 @@ const titles: Record<AppView, { eyebrow: MessageKey; title: MessageKey }> = {
   highlights: { eyebrow: "top.sourceExcerpts", title: "nav.highlights" },
   fragments: { eyebrow: "top.captureThoughts", title: "nav.fragments" },
   brain: { eyebrow: "top.memoryNetwork", title: "nav.brain" },
+  methods: { eyebrow: "top.allContent", title: "nav.methods" },
   settings: { eyebrow: "top.yourSpace", title: "nav.settings" },
 };
 

@@ -18,6 +18,7 @@ const viewLoaders: Record<AppView, WorkspaceViewLoader> = {
   highlights: () => import("../views/HighlightsView").then((module) => ({ default: module.HighlightsView })),
   fragments: () => window.chengjing?.platform === "android" ? import("./MobileCapture").then((module) => ({ default: module.MobileCapture })) : import("../views/FragmentsView").then((module) => ({ default: module.FragmentsView })),
   brain: () => import("../views/SecondBrainView").then((module) => ({ default: module.SecondBrainView })),
+  methods: () => import("../views/MarketingMethodsView").then((module) => ({ default: module.MarketingMethodsView })),
   settings: () => import("../views/SettingsView").then((module) => ({ default: module.SettingsView })),
 };
 const viewModuleCache = new Map<AppView, Promise<WorkspaceViewModule>>();
@@ -48,6 +49,7 @@ const views: Record<AppView, LazyExoticComponent<ComponentType>> = {
   highlights: lazy(() => loadWorkspaceView("highlights")),
   fragments: lazy(() => loadWorkspaceView("fragments")),
   brain: lazy(() => loadWorkspaceView("brain")),
+  methods: lazy(() => loadWorkspaceView("methods")),
   settings: lazy(() => loadWorkspaceView("settings")),
 };
 
