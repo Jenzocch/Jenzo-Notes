@@ -88,12 +88,16 @@ async function sha256(value: string) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function normalizeMarketingMethodSource(value: string) {
+  return value.replace(/\r\n/g, "\n");
+}
+
 export async function loadMarketingMethod(id: string): Promise<LoadedMarketingMethod> {
   const entry = entriesById.get(id);
   if (!entry) throw new Error("marketing-method-not-found");
   const loader = rawLoaders[`../assets/thinkwithblack/${entry.pack}`] as RawLoader | undefined;
   if (!loader) throw new Error("marketing-method-content-missing");
-  const content = await loader();
+  const content = normalizeMarketingMethodSource(await loader());
   if (await sha256(content) !== entry.packSha256) throw new Error("marketing-method-integrity-failed");
   return {
     entry,

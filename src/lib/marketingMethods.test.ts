@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
-import { loadMarketingMethod, marketingMethodCatalog, marketingMethodCardId, marketingMethodProvenance, saveMarketingMethodCard, searchMarketingMethods, validateMarketingMethodCatalog } from "./marketingMethods";
+import { loadMarketingMethod, marketingMethodCatalog, marketingMethodCardId, marketingMethodProvenance, normalizeMarketingMethodSource, saveMarketingMethodCard, searchMarketingMethods, validateMarketingMethodCatalog } from "./marketingMethods";
 
 describe("ThinkWithBlack local marketing method library", () => {
   beforeEach(async () => { await db.delete(); await db.open(); });
@@ -17,6 +17,10 @@ describe("ThinkWithBlack local marketing method library", () => {
   it("finds a method from a problem without loading every method body", () => {
     expect(searchMarketingMethods("只買過一次 回購", 5).some((entry) => entry.id === "MK-390")).toBe(true);
     expect(searchMarketingMethods("ＭＫ－０５９", 1)[0]?.id).toBe("MK-059");
+  });
+
+  it("canonicalizes Windows checkout line endings before source verification", () => {
+    expect(normalizeMarketingMethodSource("# Method\r\n\r\nBody\r\n")).toBe("# Method\n\nBody\n");
   });
 
   it("loads one allowlisted pack offline, verifies its source hash, and never executes its instructions", async () => {
