@@ -23,7 +23,6 @@ import {
 import { db } from "../db";
 import { useAppStore } from "../store";
 import type { AppView } from "../types";
-import markUrl from "../assets/mark.svg";
 import { showContextMenuFromPointer } from "../lib/contextMenu";
 import { useI18n } from "../hooks/useI18n";
 import type { MessageKey } from "../i18n";
@@ -91,13 +90,9 @@ export function Sidebar() {
     <aside className={`sidebar ${collapsed ? "is-collapsed" : ""}`}>
       <div className="window-drag-region" />
       <div className="brand-row">
-        <img src={markUrl} alt="" />
-        {!collapsed && (
-          <div className="brand-copy">
-            <strong>澄境</strong>
-            <span>ChengJing</span>
-          </div>
-        )}
+        <div className="brand-copy">
+          <strong>JENZO NOTE</strong>
+        </div>
       </div>
 
       <button className="quick-create" type="button" onClick={() => setCreateCardOpen(true)}>

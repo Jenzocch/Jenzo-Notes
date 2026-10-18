@@ -168,22 +168,18 @@ html[data-quick-capture="true"], html[data-quick-capture="true"] body, html[data
 .window-drag-region { position: absolute; top: 0; left: 0; width: 100%; height: 34px; -webkit-app-region: drag; }
 :root[data-platform="win32"] .window-drag-region { display: none; }
 
-.launch-screen { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; gap: 16px; background: var(--canvas); }
-.launch-screen img { width: 44px; height: 44px; color: var(--accent); animation: launchPulse 1.6s ease-in-out infinite; }
+.launch-screen { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; background: var(--canvas); }
 .launch-screen div { display: grid; gap: 3px; }
 .launch-screen strong { font-size: calc(20px * var(--font-scale)); letter-spacing: 0.08em; }
 .launch-screen span { color: var(--text-muted); font-size: calc(14px * var(--font-scale)); }
-@keyframes launchPulse { 50% { transform: scale(1.035); opacity: 0.72; } }
 
 .sidebar { position: relative; display: flex; width: var(--sidebar-width); flex: 0 0 var(--sidebar-width); flex-direction: column; padding: 0 10px 10px; border-right: 1px solid var(--border); background: var(--sidebar); transition: width 240ms var(--ease-out), flex-basis 240ms var(--ease-out); }
 .sidebar.is-collapsed { width: 72px; flex-basis: 72px; padding-inline: 9px; }
-.brand-row { display: flex; height: var(--topbar-height); min-height: var(--topbar-height); align-items: center; gap: 11px; margin-inline: -10px; padding: 0 12px 0 var(--brand-leading); box-shadow: inset 0 -1px color-mix(in oklch, var(--border) 55%, transparent); transition: padding-left 240ms var(--ease-out), padding-right 240ms var(--ease-out); }
-.brand-row > img { width: 29px; height: 29px; color: var(--accent); }
+.brand-row { display: flex; height: var(--topbar-height); min-height: var(--topbar-height); align-items: center; margin-inline: -10px; padding: 0 12px 0 var(--brand-leading); box-shadow: inset 0 -1px color-mix(in oklch, var(--border) 55%, transparent); transition: padding-left 240ms var(--ease-out), padding-right 240ms var(--ease-out); }
 .brand-copy { display: grid; min-width: 0; line-height: 1.15; }
-.brand-copy strong { font-size: calc(16px * var(--font-scale)); letter-spacing: 0.12em; }
-.brand-copy span { margin-top: 3px; color: var(--text-muted); font-size: calc(12px * var(--font-scale)); letter-spacing: 0.14em; text-transform: uppercase; }
-.is-collapsed .brand-row { justify-content: flex-start; margin-inline: -9px; padding-left: var(--brand-leading); padding-right: 0; }
-.is-collapsed .brand-row > img { width: 28px; }
+.brand-copy strong { font-size: calc(15px * var(--font-scale)); letter-spacing: 0.1em; white-space: nowrap; }
+.is-collapsed .brand-row { justify-content: center; margin-inline: -9px; padding-inline: 4px; }
+.is-collapsed .brand-copy strong { width: 48px; white-space: normal; text-align: center; font-size: calc(10px * var(--font-scale)); line-height: 1.2; }
 :root[data-window-fullscreen="true"] .brand-row { padding-left: 17px; }
 :root[data-window-fullscreen="true"] .is-collapsed .brand-row { justify-content: center; padding-inline: 0; }
 :root:not([data-window-fullscreen="true"]) .sidebar.is-collapsed { width: var(--windowed-collapsed-sidebar-width); flex-basis: var(--windowed-collapsed-sidebar-width); }
@@ -1735,7 +1731,8 @@ html[data-quick-capture="true"], html[data-quick-capture="true"] body, html[data
 @media (max-width: 1040px) {
   :root { --sidebar-width: 68px; --panel-width: 360px; }
   .sidebar { width: 68px; flex-basis: 68px; padding-inline: 9px; }
-  .sidebar .brand-copy, .sidebar .quick-create span, .sidebar .quick-create kbd, .sidebar .primary-nav span, .sidebar .nav-badge, .sidebar .sidebar-boards, .sidebar .sidebar-footer span { display: none; }
+  .sidebar .quick-create span, .sidebar .quick-create kbd, .sidebar .primary-nav span, .sidebar .nav-badge, .sidebar .sidebar-boards, .sidebar .sidebar-footer span { display: none; }
+  .sidebar .brand-copy strong { width: 48px; white-space: normal; text-align: center; font-size: calc(10px * var(--font-scale)); line-height: 1.2; }
   .sidebar .brand-row, .sidebar .quick-create, .sidebar .primary-nav > button, .sidebar .sidebar-footer > button { justify-content: center; padding-inline: 0; }
   :root:not([data-window-fullscreen="true"]) .sidebar { width: var(--windowed-collapsed-sidebar-width); flex-basis: var(--windowed-collapsed-sidebar-width); }
   :root:not([data-window-fullscreen="true"]) .sidebar .brand-row { justify-content: flex-start; padding-left: var(--brand-leading); padding-right: 0; }

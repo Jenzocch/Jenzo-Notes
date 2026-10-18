@@ -5,7 +5,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.view.View
 import android.view.animation.LinearInterpolator
@@ -23,26 +22,16 @@ internal class LaunchSurface(context: Context, private val background: Int, lang
         addUpdateListener{phase=it.animatedValue as Float;invalidate()}
     }
     init {
-        contentDescription=when(language){"zh-TW"->"正在開啟澄境";"zh-CN"->"正在打开澄境";"ja"->"澄境を開いています";"ko"->"澄境을 여는 중";else->"Opening ChengJing"}
+        contentDescription=when(language){"zh-TW"->"正在開啟 JENZO NOTE";"zh-CN"->"正在打开 JENZO NOTE";"ja"->"JENZO NOTE を起動中";"ko"->"JENZO NOTE 시작 중";else->"Opening JENZO NOTE"}
         importantForAccessibility=IMPORTANT_FOR_ACCESSIBILITY_YES
         isClickable=false
     }
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(background)
         val x=width*.14f;val baseline=height*.36f
-        paint.style=Paint.Style.STROKE;paint.strokeWidth=density
-        paint.color=if(dark)Color.argb(24,92,173,144)else Color.argb(25,35,115,90)
-        for(radius in floatArrayOf(.28f,.40f,.53f)){
-            val r=width*radius;val cx=width*.84f;val cy=height*.82f
-            canvas.drawArc(RectF(cx-r,cy-r,cx+r,cy+r),190f,145f,false,paint)
-        }
         paint.style=Paint.Style.FILL;paint.color=if(dark)Color.rgb(238,235,226)else Color.rgb(32,53,44)
-        paint.typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL);paint.textSize=sp(34f)
-        canvas.drawText("澄境",x,baseline,paint)
-        paint.typeface=Typeface.create("sans-serif",Typeface.NORMAL);paint.textSize=sp(10f)
-        paint.color=if(dark)Color.rgb(153,172,161)else Color.rgb(92,114,102)
-        var nextX=x
-        for(letter in "CHENGJING"){val text=letter.toString();canvas.drawText(text,nextX,baseline+27*density,paint);nextX+=paint.measureText(text)+2.2f*density}
+        paint.typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL);paint.textSize=sp(30f)
+        canvas.drawText("JENZO NOTE",x,baseline,paint)
         for(index in 0..2){
             val opacity=(90+70*sin(phase*6.283185f-index*.7f)).toInt()
             paint.color=if(dark)Color.argb(opacity,53,199,162)else Color.argb(opacity,20,117,95)

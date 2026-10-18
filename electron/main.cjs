@@ -729,7 +729,7 @@ async function createQuickCaptureWindow() {
   if (quickCaptureWindow && !quickCaptureWindow.isDestroyed()) return quickCaptureWindow;
   quickCaptureWindow = new BrowserWindow({
     ...quickCaptureBounds(),
-    title: "澄境・隻言片語",
+    title: "JENZO NOTE · Quick Capture",
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
@@ -961,7 +961,7 @@ async function createWindow({ show = !isSmoke } = {}) {
     height: 940,
     minWidth: 1040,
     minHeight: 680,
-    title: "澄境",
+    title: "JENZO NOTE",
     backgroundColor: "#141817",
     autoHideMenuBar: process.platform === "win32",
     ...(process.platform === "darwin" ? {
@@ -1720,7 +1720,7 @@ app.on("before-quit", (event) => {
     } catch {
       const chinese = currentLanguage.startsWith("zh");
       const result = await dialog.showMessageBox({
-        type: "warning", title: "澄境",
+        type: "warning", title: "JENZO NOTE",
         message: chinese ? "最新內容尚未完成雲端備份" : "Your latest changes have not finished backing up",
         detail: chinese ? "資料仍保存在這台電腦。你可以重試、返回澄境，或仍然退出並於下次開啟補傳。若另一台裝置有更新，請先到備份設定處理衝突。" : "Your data remains on this computer. Retry, return to ChengJing, or quit and upload next time. If another device changed the backup, resolve the conflict in Settings first.",
         buttons: chinese ? ["重試備份", "返回澄境", "仍然退出"] : ["Retry backup", "Return to ChengJing", "Quit anyway"],

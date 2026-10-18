@@ -35,6 +35,7 @@
     "qa:source-workbench": "node scripts/qa-source-workbench.mjs",
     "qa:secretary": "node scripts/qa-secretary.mjs",
     "qa:marketing-methods": "node scripts/qa-marketing-methods.mjs",
+    "qa:branding": "node scripts/qa-branding.mjs",
     "qa:vault-unsupported": "node scripts/qa-vault-unsupported.mjs",
     "qa:database-share": "node scripts/qa-database-share.mjs",
     "qa:pinned-cards": "node scripts/qa-pinned-cards.mjs",

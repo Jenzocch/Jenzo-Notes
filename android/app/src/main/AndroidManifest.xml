@@ -4,7 +4,7 @@
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
   <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
-  <application android:label="澄境" android:icon="@mipmap/chengjing_launcher" android:roundIcon="@mipmap/chengjing_launcher" android:allowBackup="false" android:theme="@style/AppTheme" android:usesCleartextTraffic="false">
+  <application android:label="JENZO NOTE" android:icon="@mipmap/chengjing_launcher" android:roundIcon="@mipmap/chengjing_launcher" android:allowBackup="false" android:theme="@style/AppTheme" android:usesCleartextTraffic="false">
     <uses-native-library android:name="libvndksupport.so" android:required="false" />
     <uses-native-library android:name="libOpenCL.so" android:required="false" />
     <receiver android:name=".SecretaryReminderReceiver" android:exported="false" />

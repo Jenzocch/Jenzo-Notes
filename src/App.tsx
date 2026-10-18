@@ -15,7 +15,6 @@ import { AutoBackupManager } from "./components/AutoBackupManager";
 import { CommunityNotificationManager } from "./components/CommunityNotificationManager";
 import { SharedBrainSyncManager } from "./components/SharedBrainSyncManager";
 import type { ThemeMode } from "./types";
-import markUrl from "./assets/mark.svg";
 import "dayjs/locale/zh-tw";
 import "dayjs/locale/zh-cn";
 import "dayjs/locale/ja";
@@ -207,9 +206,8 @@ export function App() {
     if(android&&!startupError)return <main className="android-launch-placeholder" aria-label={t("app.launchAria")} aria-busy="true"/>;
     return (
       <main className="launch-screen" aria-label={t("app.launchAria")}>
-        <img src={markUrl} alt="" />
         <div>
-          <strong>澄境</strong>
+          <strong>JENZO NOTE</strong>
           <span>{startupError ? healthCopy.startupError : t("app.loading")}</span>
           {startupError && <><button type="button" className="primary-button" onClick={() => window.location.reload()}>{healthCopy.retry}</button><details className="launch-error-details"><summary>{healthCopy.details}</summary><p>{startupError}</p></details></>}
         </div>
