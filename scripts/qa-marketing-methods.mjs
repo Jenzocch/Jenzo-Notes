@@ -25,14 +25,14 @@ try {
     if(!await evaluate("document.querySelector('.marketing-method-boundary')?.textContent.includes('不能擴張')&&!document.querySelector('.marketing-method-content script,.marketing-method-content iframe,[onclick]')"))throw new Error("Method authority boundary or sanitization missing");
     await evaluate("document.querySelector('.marketing-method-reader .primary-button').click()");
     await wait("/已保存|已在卡片庫/.test(document.querySelector('.marketing-method-status')?.textContent||'')");
-    if(!await evaluate("(async()=>{const {db}=await import('/src/db.ts');return (await db.cards.where('id').startsWith('thinkwithblack:').count())===1})()"))throw new Error("Method card was not saved exactly once");
-    await evaluate("(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.getState().closeCard()})()");
+    if(!await evaluate("(window.__marketingQAPromise=(async()=>{const {db}=await import('/src/db.ts');return (await db.cards.where('id').startsWith('thinkwithblack:').count())===1})())"))throw new Error("Method card was not saved exactly once");
+    await evaluate("(window.__marketingQAPromise=(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.getState().closeCard()})())");
     await wait("!document.querySelector('.card-focus-layer')");
     await evaluate("document.querySelector('.marketing-method-reader .primary-button').click()");
     await wait("document.querySelector('.marketing-method-status')?.textContent.includes('已在卡片庫')");
-    const saved=await evaluate("(async()=>{const {db}=await import('/src/db.ts');const cards=await db.cards.where('id').startsWith('thinkwithblack:').toArray();return cards.map(c=>({id:c.id,sourceUrl:c.sourceUrl,properties:c.properties}))})()");
+    const saved=await evaluate("(window.__marketingQAPromise=(async()=>{const {db}=await import('/src/db.ts');const cards=await db.cards.where('id').startsWith('thinkwithblack:').toArray();return cards.map(c=>({id:c.id,sourceUrl:c.sourceUrl,properties:c.properties}))})())");
     if(saved.length!==1||saved[0].properties.sourceLicense!=="MIT"||saved[0].properties.sourceCommit!=="28f0c2ccf0f8581b857f8d1d854d43908acc3656"||!saved[0].sourceUrl.includes("/blob/28f0c2c"))throw new Error("Saved method provenance mismatch");
-    await evaluate("(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.getState().closeCard()})()");
+    await evaluate("(window.__marketingQAPromise=(async()=>{const {useAppStore}=await import('/src/store.ts');useAppStore.getState().closeCard()})())");
     await wait("!document.querySelector('.card-focus-layer')");
     await evaluate("document.querySelector('.marketing-methods-view').scrollTo(0,0);document.querySelector('.workspace').scrollTo(0,0)");
     if(await evaluate("document.documentElement.scrollWidth>innerWidth+1"))throw new Error("Horizontal overflow");
